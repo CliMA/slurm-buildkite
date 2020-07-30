@@ -6,4 +6,6 @@ fi
 source /etc/bashrc
 
 cd /groups/esm/buildkite
-bin/poll.py &>> "logs/cron-$(date +\%Y-\%m-\%d)"
+DATE="$(date +\%Y-\%m-\%d)"
+mkdir -p "logs/$DATE"
+bin/poll.py &>> "logs/$DATE/cron"
