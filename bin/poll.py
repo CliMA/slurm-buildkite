@@ -23,38 +23,50 @@ logger.addHandler(handler)
 
 BUILDS_ENDPOINT = 'https://api.buildkite.com/v2/organizations/clima/builds'
 
-# we pick an hour timedelta for the build window, 
+# we pick an hour timedelta for the build window,
 # but it just needs to be more than that cron poll interval
 def hour_ago_utc():
     return (datetime.utcnow() - timedelta(hours=1)).replace(microsecond=0).isoformat() + 'Z'
 
 
 def all_started_builds():
-    state_query = '&state[]=scheduled&state[]=running'
-    created_from_query = '&created_from={0}'.format(hour_ago_utc())
+    since = hour_ago_utc()
     npage, builds = 1, []
     while True:
-        page_query = '?page={0}&per_page=100'.format(npage)
-        req_url = BUILDS_ENDPOINT + page_query + state_query + created_from_query
         resp = requests.get(
-            req_url, headers={'Authorization': 'Bearer ' + BUILDKITE_API_TOKEN}
+            BUILDS_ENDPOINT,
+            params = {
+                'page' : npage,
+                'per_page' : 100,
+                'state[]' : ['scheduled', 'running'],
+                'created_from' : since
+            },
+            headers = {
+                'Authorization': 'Bearer ' + BUILDKITE_API_TOKEN
+            }
         ).json()
         if not len(resp):
             break
         builds.extend(resp)
         npage += 1
-    return builds 
+    return builds
 
- 
+
 def all_canceled_builds():
-    state_query = '&state[]=canceling&state[]=canceled'
-    finished_from_query = '&finished_from={0}'.format(hour_ago_utc())
+    since = hour_ago_utc()
     npage, builds = 1, []
     while True:
-        page_query = '?page={0}per_page=100'.format(npage)
-        req_url = BUILDS_ENDPOINT + page_query + state_query + finished_from_query
         resp = requests.get(
-            req_url, headers={'Authorization': 'Bearer ' + BUILDKITE_API_TOKEN}
+            BUILDS_ENDPOINT,
+            params = {
+                'page' : npage,
+                'per_page' : 100,
+                'state[]' : ['canceling', 'canceled'],
+                'created_from' : since
+            },
+            headers = {
+                'Authorization': 'Bearer ' + BUILDKITE_API_TOKEN
+            }
         ).json()
         if not len(resp):
             break
@@ -65,7 +77,7 @@ def all_canceled_builds():
 try:
     # optional env overloads
     BUILDKITE_PATH = os.environ.get(
-        'BUILDKITE_PATH', 
+        'BUILDKITE_PATH',
         '/groups/esm/buildkite'
     )
 
@@ -80,30 +92,30 @@ try:
                              '--noheader',
                              '--format=%k,%A'],
                             stdout=subprocess.PIPE)
-     
+
     currentjobs = dict()
     for line in squeue.stdout.decode('utf-8').splitlines():
         buildkite_job_id, slurm_job_id = line.split(',', 1)
         currentjobs[buildkite_job_id] = slurm_job_id
-    
+
     logger.info('jobs in slurm queue: {0}'.format(len(currentjobs)))
-    
-    
+
+
     # poll the buildkite API to check if there are any scheduled/running builds
     builds = all_started_builds()
 
     # loop over all scheduled and running builds for all pipelines in the organiation
-    
+
     # cancel any previous build jobs, collect these first during job submission for any running builds
     # we further collect all canceled build jobs at the end and issue one scancel call
     cancel_slurm_jobids = []
- 
+
     for build in builds:
-            
+
         # get the build id, number and pipeline
         #  redirect job logs per unique build id
         buildid = build['id']
-        buildnum = build['number'] 
+        buildnum = build['number']
         pipeline = build['pipeline']
 
         # for all jobs in this build
@@ -115,24 +127,24 @@ try:
             # don't schedule non-script jobs on slurm
             if jobtype != 'script':
                 continue
-                 
+
             # this job is a script job, check if it has a scheduled state
             # and not submitted as slurm job
             # valid states: running, scheduled, passed, failed, blocked,
             #               canceled, canceling, skipped, not_run, finished
             jobstate = job['state']
-            
+
             # if an individual job during an scheduled or running build is
-            # marked as canceled, add it to the list of jobids to cancel 
+            # marked as canceled, add it to the list of jobids to cancel
             if jobstate == 'canceled' and jobid in currentjobs:
                 cancel_slurm_jobids.append(currentjobs[jobid])
                 continue
-             
+
             # jobstate is not pending, or a scheduled job (but not running yet)
             # is already submitted to slurm
             if jobstate != 'scheduled' or jobid in currentjobs:
                 continue
-    
+
             # build sbatch command, collect job logs per build id
             slurmlog_prefix = joinpath(
                 BUILDKITE_PATH,
@@ -146,7 +158,8 @@ try:
             if not os.path.isdir(slurmlog_prefix):
                 logger.info('new build: pipeline: {0}, number: {1}, build id: {2}' \
                             .format(pipeline['name'], buildnum, buildid))
-                os.mkdir(slurmlog_prefix)
+                if not DEBUG:
+                    os.mkdir(slurmlog_prefix)
 
             logger.info('  new job: pipeline: {0}, number: {1}, build id: {2}, job id: {3}' \
                         .format(pipeline['name'], buildnum, buildid, jobid))
@@ -161,12 +174,12 @@ try:
 
             # parse agent query rule tags
             agent_query_rules = job.get('agent_query_rules', [])
-            agent_config = 'default' 
+            agent_config = 'default'
             agent_queue  = 'default'
             for tag in agent_query_rules:
-                # e.g. tag = "slurm_ntasks=3"
+                # e.g. tag = 'slurm_ntasks=3'
                 key, val = tag.split('=', 1)
-                
+
                 if key.startswith('queue'):
                     agent_queue = val
                     continue
@@ -179,32 +192,32 @@ try:
                 if key.startswith('slurm_'):
                     slurm_arg = key.split('slurm_', 1)[1]
                     cmd.append('--{0}={1}'.format(slurm_arg, val))
-                    continue 
-            
+                    continue
+
             cmd.append(joinpath(BUILDKITE_PATH, 'bin/slurmjob.sh'))
             cmd.append(agent_config)
             cmd.append(jobid)
-            
+
             logger.info("new slurm job: `{0}`".format(" ".join(cmd)))
             if not DEBUG:
                 subprocess.run(cmd)
 
     # Run canceled job builds at the end
     canceled_builds = all_canceled_builds()
-    
+
     for build in canceled_builds:
         for job in build['jobs']:
             jobid = job['id']
             if jobid in currentjobs:
                 cancel_slurm_jobids.append(currentjobs[jobid])
-     
+
     # if we have scheduled / running slurm jobs to cancel, cancel them in one call
     if len(cancel_slurm_jobids):
          logger.info('canceling {0} jobs in slurm queue'.format(len(cancel_slurm_jobids)))
-         
+
          cmd = ['scancel', '--name=buildkite']
          cmd.extend(cancel_slurm_jobids)
-         
+
          logger.info("new slurm job: `{0}`".format(" ".join(cmd)))
          if not DEBUG:
             subprocess.run(cmd)
