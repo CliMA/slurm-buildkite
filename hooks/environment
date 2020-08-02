@@ -10,3 +10,4 @@
 
 set -e
 export JULIA_DEPOT_PATH="$(dirname "$BUILDKITE_BUILD_CHECKOUT_PATH")/.julia"
+export CI_OUTDIR="/central/scratchio/esm/buildkite/${BUILDKITE_BUILD_ID}"
