@@ -62,7 +62,7 @@ def all_canceled_builds():
                 'page' : npage,
                 'per_page' : 100,
                 'state[]' : ['canceling', 'canceled'],
-                'created_from' : since
+                'finished_from' : since
             },
             headers = {
                 'Authorization': 'Bearer ' + BUILDKITE_API_TOKEN
