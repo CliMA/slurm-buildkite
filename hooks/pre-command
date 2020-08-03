@@ -6,6 +6,9 @@
 set -euo pipefail # exit on failure or unset variable
 set -v
 
+module purge
+module load julia/1.4.2 
+
 if [[ -f "Project.toml" ]]; then
     echo "--- Instantiating Julia project"
     julia --color=yes --project -e 'using Pkg; Pkg.instantiate(;verbose=true); Pkg.precompile(); Pkg.status();'
