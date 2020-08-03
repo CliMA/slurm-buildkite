@@ -1,0 +1,14 @@
+#!/bin/bash
+
+# The `pre-command` hook will run just before your build command runs
+
+
+set -euo pipefail # exit on failure or unset variable
+set -v
+
+if [[ -f "Project.toml" ]]; then
+    echo "--- Instantiating Julia project"
+    julia --color=yes --project -e 'using Pkg; Pkg.instantiate(;verbose=true); Pkg.precompile(); Pkg.status();'
+fi
+
+set +v

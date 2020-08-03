@@ -8,6 +8,37 @@
 #
 # export SECRET_VAR=token
 
-set -e
+set -euo pipefail # exit on failure or unset variable
+set -v
+
 export JULIA_DEPOT_PATH="$(dirname "$BUILDKITE_BUILD_CHECKOUT_PATH")/.julia"
 export CI_OUTDIR="/central/scratchio/esm/buildkite/${BUILDKITE_BUILD_ID}"
+
+case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
+    # standard configurations
+
+    "cpu")
+        echo "--- cpu configuration"
+        module purge
+        module load julia/1.4.2 openmpi/4.0.3 hdf5/1.10.1 netcdf-c/4.6.1
+
+        export JULIA_CUDA_USE_BINARYBUILDER=false
+        export JULIA_MPI_BINARY=system
+
+        export OMPI_MCA_btl="self,tcp"
+        ;;
+
+    "gpu")
+        echo "--- gpu configuration"
+        module purge
+        module load julia/1.4.2 cuda/10.0 openmpi/4.0.3_cuda-10.0 hdf5/1.10.1 netcdf-c/4.6.1
+
+        export JULIA_CUDA_USE_BINARYBUILDER=false
+        export JULIA_MPI_BINARY=system
+
+        export OMPI_MCA_btl="self,tcp"
+        ;;
+
+esac
+
+set +v
