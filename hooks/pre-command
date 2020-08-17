@@ -14,7 +14,7 @@ printf -- "--retry 8\n" > "$CURL_HOME/.curlrc"
 case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     # standard configurations
 
-    cpu|gpu)
+    cpu|cpu-test|gpu|gpu-test)
         if [[ -f "Project.toml" ]]; then
             echo "--- Instantiating Julia project"
             # try to instantiate, only call build if this fails
