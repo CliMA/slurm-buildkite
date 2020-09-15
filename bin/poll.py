@@ -78,7 +78,7 @@ try:
     # optional env overloads
     BUILDKITE_PATH = os.environ.get(
         'BUILDKITE_PATH',
-        '/groups/esm/buildkite'
+        '/groups/esm/climaci'
     )
 
     BUILDKITE_API_TOKEN = os.environ.get(
@@ -191,8 +191,11 @@ try:
                 # passthrough all agent slurm prefixed query rules to the slurm job
                 if key.startswith('slurm_'):
                     slurm_arg = key.split('slurm_', 1)[1]
-                    cmd.append('--{0}={1}'.format(slurm_arg, val))
-                    continue
+                    if val:
+                        cmd.append('--{0}={1}'.format(slurm_arg, val))
+                    else:
+                        # flag with no value
+                        cmd.append('--{0}'.format(slurm_arg))
 
             cmd.append(joinpath(BUILDKITE_PATH, 'bin/slurmjob.sh'))
             cmd.append(agent_config)
