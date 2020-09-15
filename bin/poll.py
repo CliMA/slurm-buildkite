@@ -168,6 +168,7 @@ try:
             # which can be queried with %k
             cmd = [
                 'sbatch',
+                '--parsable',
                 '--comment=' + jobid,
                 '--output=' + joinpath(slurmlog_prefix, 'slurm-%j.log')
             ]
@@ -200,10 +201,21 @@ try:
             cmd.append(joinpath(BUILDKITE_PATH, 'bin/slurmjob.sh'))
             cmd.append(agent_config)
             cmd.append(jobid)
-
-            logger.info("new slurm job: `{0}`".format(" ".join(cmd)))
+            
+            slurmjob_id = 0
             if not DEBUG:
-                subprocess.run(cmd)
+                ret = subprocess.run(cmd, 
+                                     stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE,
+                                     universal_newlines=True)
+                if ret.returncode != 0:
+                    logger.error(
+                        "slurm error retcode={0}: `{1}`\n{2}").format(ret.returncode,
+                                                                      " ".join(cmd),
+                                                                      ret.stderr)
+                    continue
+                slurmjob_id = int(ret.stdout)
+            logger.info("new slurm jobid={0}: `{1}`".format(slurmjob_id, " ".join(cmd)))
 
     # Run canceled job builds at the end
     canceled_builds = all_canceled_builds()
@@ -216,14 +228,22 @@ try:
 
     # if we have scheduled / running slurm jobs to cancel, cancel them in one call
     if len(cancel_slurm_jobids):
-         logger.info('canceling {0} jobs in slurm queue'.format(len(cancel_slurm_jobids)))
+        logger.info('canceling {0} jobs in slurm queue'.format(len(cancel_slurm_jobids)))
 
-         cmd = ['scancel', '--name=buildkite']
-         cmd.extend(cancel_slurm_jobids)
+        cmd = ['scancel', '--name=buildkite']
+        cmd.extend(cancel_slurm_jobids)
 
-         logger.info("new slurm job: `{0}`".format(" ".join(cmd)))
-         if not DEBUG:
-            subprocess.run(cmd)
+        logger.info("new slurm job: `{0}`".format(" ".join(cmd)))
+        if not DEBUG:
+            ret = subprocess.run(cmd, 
+                                 stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE,
+                                 universal_newlines=True)
+            if ret.returncode != 0:
+                logger.error(
+                    "slurm error retcode={0}: `{1}`\n{2}").format(ret.returncode,
+                                                                  " ".join(cmd),
+                                                                  ret.stderr)
 
 except Exception:
     logger.error("Caught exception during poll",  exc_info=True)
