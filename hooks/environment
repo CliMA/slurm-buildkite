@@ -17,6 +17,10 @@ export CI_OUTDIR="/central/scratchio/esm/climaci/${BUILDKITE_BUILD_ID}"
 # TODO: move to pipeline.yml somehow?
 export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_OUTDIR}/${BUILDKITE_STEP_KEY}"
 
+# Slurm Job Info
+echo "--- Slurm Job ID"
+echo "Slurm Job ID: ${SLURM_JOB_ID}"
+
 module purge
 
 case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
