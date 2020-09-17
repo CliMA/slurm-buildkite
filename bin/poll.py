@@ -210,9 +210,8 @@ try:
                                      universal_newlines=True)
                 if ret.returncode != 0:
                     logger.error(
-                        "slurm error retcode={0}: `{1}`\n{2}").format(ret.returncode,
-                                                                      " ".join(cmd),
-                                                                      ret.stderr)
+                        "slurm error retcode={0}: `{1}`\n{2}" \
+                        .format(ret.returncode, " ".join(cmd), ret.stderr))
                     continue
                 slurmjob_id = int(ret.stdout)
             logger.info("new slurm jobid={0}: `{1}`".format(slurmjob_id, " ".join(cmd)))
