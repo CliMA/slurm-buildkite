@@ -3,8 +3,8 @@
 #SBATCH --job-name=buildkite
 #SBATCH --reservation=clima
 
-BUILDKITE_PATH=/groups/esm/climaci
-BUILDKITE_QUEUE=central
+BUILDKITE_PATH=${BUILDKITE_PATH:=/groups/esm/climaci}
+BUILDKITE_QUEUE=${BUILDKITE_QUEUE:=central}
 
 ${BUILDKITE_PATH}/bin/buildkite-agent start \
   --name "central-$1-%n" \

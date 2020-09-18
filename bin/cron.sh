@@ -4,7 +4,9 @@ if [[ "$HOSTNAME" != "login1" ]]; then
     exit 0
 fi
 
-cd /groups/esm/climaci
+export BUILDKITE_PATH="/groups/esm/climaci"
+
+cd $BUILDKITE_PATH
 
 DATE="$(date +\%Y-\%m-\%d)"
 mkdir -p "logs/$DATE"
