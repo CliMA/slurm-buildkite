@@ -29,7 +29,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     "cpu")
         echo "--- cpu configuration"
         module load julia/${JULIA_VERSION:=1.4.2}
-        module load openmpi/4.0.3 hdf5/1.10.1 netcdf-c/4.6.1
+        module load openmpi/${OPENMPI_VERSION:=4.0.3} hdf5/1.10.1 netcdf-c/4.6.1
 
         export JULIA_CUDA_USE_BINARYBUILDER=false
         export JULIA_MPI_BINARY=system
@@ -40,7 +40,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     "cpu-test")
         echo "--- cpu test configuration"
         module load julia/${JULIA_VERSION:=1.5.1}
-        module load openmpi/4.0.4 hdf5/1.10.1 netcdf-c/4.6.1
+        module load openmpi/${OPENMPI_VERSION:=4.0.4} hdf5/1.10.1 netcdf-c/4.6.1
 
         export JULIA_CUDA_USE_BINARYBUILDER=false
         export JULIA_MPI_BINARY=system
@@ -51,7 +51,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     "gpu")
         echo "--- gpu configuration"
         module load julia/${JULIA_VERSION:=1.4.2}
-        module load cuda/10.0 openmpi/4.0.3_cuda-10.0 hdf5/1.10.1 netcdf-c/4.6.1
+        module load cuda/${CUDA_VERSION:=10.0} openmpi/${OPENMPI_VERSION:=4.0.3}_cuda-${CUDA_VERSION:=10.0} hdf5/1.10.1 netcdf-c/4.6.1
 
         export JULIA_CUDA_USE_BINARYBUILDER=false
         export JULIA_MPI_BINARY=system
@@ -65,7 +65,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     "gpu-test")
         echo "--- gpu test configuration"
         module load julia/${JULIA_VERSION:=1.5.1}
-        module load cuda/10.2 openmpi/4.0.4_cuda-10.2 hdf5/1.10.1 netcdf-c/4.6.1
+        module load cuda/${CUDA_VERSION:=10.2} openmpi/${OPENMPI_VERSION:=4.0.4}_cuda-${CUDA_VERSION:=10.2} hdf5/1.10.1 netcdf-c/4.6.1
 
         export JULIA_CUDA_USE_BINARYBUILDER=false
         export JULIA_MPI_BINARY=system
