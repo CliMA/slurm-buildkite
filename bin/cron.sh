@@ -5,6 +5,7 @@ if [[ "$HOSTNAME" != "login1" ]]; then
 fi
 
 export BUILDKITE_PATH="/groups/esm/climaci"
+export BUILDKITE_QUEUE='central'
 
 cd $BUILDKITE_PATH
 

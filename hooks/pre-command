@@ -12,13 +12,11 @@ printf -- "--retry 8\n" > "$CURL_HOME/.curlrc"
 
 
 case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
-    # standard configurations
-    disabled)
-        if [[ -f "Project.toml" ]]; then
-            echo "--- Instantiating Julia project"
-            # try to instantiate, only call build if this fails
-            julia --color=yes --project "$BUILDKITE_HOOKS_PATH/instantiate.jl"
-        fi
+    # standard configurations run with shared base depot
+    # but temporary prefix for each run
+    cpu|cpu-test|gpu|gpu-test)
+        #TMP_DEPOT=`mktemp -d` || exit 1
+        #export JULIA_DEPOT_PATH="${TMP_DEPOT}:${JULIA_DEPOT_PATH}"
         ;;
 esac
 
