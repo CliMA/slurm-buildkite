@@ -11,73 +11,91 @@
 set -euo pipefail # exit on failure or unset variable
 set -v
 
-export JULIA_DEPOT_PATH="$(dirname "$BUILDKITE_BUILD_CHECKOUT_PATH")/.julia"
-export CI_OUTDIR="/central/scratchio/esm/climaci/${BUILDKITE_BUILD_ID}"
-
-# TODO: move to pipeline.yml somehow?
-export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_OUTDIR}/${BUILDKITE_STEP_KEY}"
+export CI_BUILD_DIR="${BUILDKITE_BUILD_PATH}/${BUILDKITE_PIPELINE_SLUG}/${BUILDKITE_BUILD_NUMBER}"
 
 # Slurm Job Info
-echo "--- Slurm Job ID"
-echo "Slurm Job ID: ${SLURM_JOB_ID}"
+echo "--- Slurm Job ID: ${SLURM_JOB_ID}"
 
 module purge
 
 case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     # standard configurations
+    init|default)
+        echo "--- init env configuration"
+        export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
+        ;;
 
-    "cpu")
-        echo "--- cpu configuration"
+    cpu)
+        echo "--- cpu env configuration"
         module load julia/${JULIA_VERSION:=1.4.2}
         module load openmpi/${OPENMPI_VERSION:=4.0.3} hdf5/1.10.1 netcdf-c/4.6.1
+        export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
 
-        export JULIA_CUDA_USE_BINARYBUILDER=false
-        export JULIA_MPI_BINARY=system
-
-        export OMPI_MCA_btl="self,tcp"
-        ;;
-
-    "cpu-test")
-        echo "--- cpu test configuration"
-        module load julia/${JULIA_VERSION:=1.5.1}
-        module load openmpi/${OPENMPI_VERSION:=4.0.4} hdf5/1.10.1 netcdf-c/4.6.1
-
-        export JULIA_CUDA_USE_BINARYBUILDER=false
-        export JULIA_MPI_BINARY=system
-
-        export OMPI_MCA_btl="self,tcp"
-        ;;
-
-    "gpu")
-        echo "--- gpu configuration"
-        module load julia/${JULIA_VERSION:=1.4.2}
-        module load cuda/${CUDA_VERSION:=10.0} openmpi/${OPENMPI_VERSION:=4.0.3}_cuda-${CUDA_VERSION:=10.0} hdf5/1.10.1 netcdf-c/4.6.1
-
-        export JULIA_CUDA_USE_BINARYBUILDER=false
-        export JULIA_MPI_BINARY=system
-
-        export OMPI_MCA_btl="self,tcp"
-
-        echo "--- gpu device configuration"
-        nvidia-smi -q
-        ;;
-
-    "gpu-test")
-        echo "--- gpu test configuration"
-        module load julia/${JULIA_VERSION:=1.5.1}
-        module load cuda/${CUDA_VERSION:=10.2} openmpi/${OPENMPI_VERSION:=4.0.4}_cuda-${CUDA_VERSION:=10.2} hdf5/1.10.1 netcdf-c/4.6.1
-
+        export JULIA_DEPOT_PATH="${CI_BUILD_DIR}/depot/cpu"
         export JULIA_CUDA_USE_BINARYBUILDER=false
         export JULIA_MPI_BINARY=system
 
         export OMPI_MCA_btl="self,tcp"
         
+        export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
+        ;;
+
+    cpu-test)
+        echo "--- cpu test env configuration"
+        module load julia/${JULIA_VERSION:=1.5.1}
+        module load openmpi/${OPENMPI_VERSION:=4.0.4} hdf5/1.10.1 netcdf-c/4.6.1
+
+        export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
+
+        export JULIA_DEPOT_PATH="${CI_BUILD_DIR}/depot/cpu"
+        export JULIA_CUDA_USE_BINARYBUILDER=false
+        export JULIA_MPI_BINARY=system
+
+        export OMPI_MCA_btl="self,tcp"
+        
+        export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
+        ;;
+
+    gpu)
+        echo "--- gpu env configuration"
+        module load julia/${JULIA_VERSION:=1.4.2}
+        module load cuda/${CUDA_VERSION:=10.0} openmpi/${OPENMPI_VERSION:=4.0.3}_cuda-${CUDA_VERSION:=10.0} hdf5/1.10.1 netcdf-c/4.6.1
+
+        export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
+
+        export JULIA_DEPOT_PATH="${CI_BUILD_DIR}/depot/gpu"
+        export JULIA_CUDA_USE_BINARYBUILDER=false
+        export JULIA_MPI_BINARY=system
+
+        export OMPI_MCA_btl="self,tcp"
+
+        export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
+
+        echo "--- gpu device configuration"
+        nvidia-smi -q
+        ;;
+
+    gpu-test)
+        echo "--- gpu test env configuration"
+        module load julia/${JULIA_VERSION:=1.5.1}
+        module load cuda/${CUDA_VERSION:=10.2} openmpi/${OPENMPI_VERSION:=4.0.4}_cuda-${CUDA_VERSION:=10.2} hdf5/1.10.1 netcdf-c/4.6.1
+
+        export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
+
+        export JULIA_DEPOT_PATH="${CI_BUILD_DIR}/depot/gpu"
+        export JULIA_CUDA_USE_BINARYBUILDER=false
+        export JULIA_MPI_BINARY=system
+
+        export OMPI_MCA_btl="self,tcp"
+        
+        export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
+
         echo "--- gpu test device configuration"
         nvidia-smi -q
         ;;
 
     *)
-        echo "agent config must cpu or gpu"
+        echo "agent config must init, cpu or gpu"
         ;;
 
 esac

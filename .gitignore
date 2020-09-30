@@ -3,4 +3,5 @@ buildkite-agent.cfg
 bin/buildkite-agent
 logs/
 builds/
+depot/
 hooks/*.sample
