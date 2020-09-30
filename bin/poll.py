@@ -85,6 +85,11 @@ try:
         'BUILDKITE_API_TOKEN',
         open(joinpath(BUILDKITE_PATH,'.api_token'), 'r').read().rstrip()
     )
+    
+    BUILDKITE_QUEUE = os.environ.get(
+        'BUILDKITE_QUEUE',
+        'central'
+    )
 
     # check the currently running jobs for their buildkite ids and slurmjob ids
     squeue = subprocess.run(['squeue',
@@ -197,6 +202,9 @@ try:
                     else:
                         # flag with no value
                         cmd.append('--{0}'.format(slurm_arg))
+            
+            if not agent_queue in (BUILDKITE_QUEUE, 'default'):
+                continue
 
             cmd.append(joinpath(BUILDKITE_PATH, 'bin/slurmjob.sh'))
             cmd.append(agent_config)

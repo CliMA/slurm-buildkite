@@ -1,0 +1,46 @@
+#!/bin/bash
+
+# The `checkout` hook script will replace the default checkout routine of the
+# bootstrap.sh script. You can use this hook to do your own SCM checkout
+# behaviour
+
+set -euo pipefail # exit on failure or unset variable
+set -v
+
+case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
+    init|default)
+        echo "--- Init working build directory"
+        mkdir -p ${CI_BUILD_DIR} && cd ${CI_BUILD_DIR}
+       
+        if [ ! -d "${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}" ]; then
+            echo "--- Init clone and checkout" 
+            COUNT=1
+            while true; do
+                git clone ${BUILDKITE_GIT_CLONE_FLAGS} ${BUILDKITE_REPO} ${BUILDKITE_PIPELINE_SLUG}
+                if [ $? -eq 0 ]; then
+                    break
+                fi
+                if [[ $COUNT -ge 3 ]]; then
+                    echo "Clone ${BUILDKITE_REPO} failed after 3 attempts"
+                    exit 1
+                else
+                    echo "Clone ${BUILDKITE_REPO} failed, retrying..."
+                    sleep 30s
+                fi 
+                let COUNT=COUNT+1
+            done 
+            cd ${BUILDKITE_PIPELINE_SLUG}
+            git checkout -f ${BUILDKITE_COMMIT}
+        else
+            echo "--- Using cached git repo ${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
+            cd "${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
+        fi 
+        ;;
+
+    *)
+        echo "--- Using cached git repo ${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
+        cd "${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
+        ;;
+esac
+
+set +v
