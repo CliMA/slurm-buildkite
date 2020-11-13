@@ -91,6 +91,11 @@ try:
         'central'
     )
 
+    BUILDKITE_EXCLUDE_NODES = os.environ.get(
+        'BUILDKITE_EXCLUDE_NODES',
+        open(joinpath(BUILDKITE_PATH,'.exclude_nodes'), 'r').read().rstrip()
+    )
+
     # check the currently running jobs for their buildkite ids and slurmjob ids
     squeue = subprocess.run(['squeue',
                              '--name=buildkite',
@@ -177,7 +182,11 @@ try:
                 '--comment=' + jobid,
                 '--output=' + joinpath(slurmlog_prefix, 'slurm-%j.log')
             ]
-
+            
+            # exclude node hosts that may be problematic (comma sep string)
+            if BUILDKITE_EXCLUDE_NODES:
+                cmd.append("--exclude=" + BUILDKITE_EXCLUDE_NODES)
+  
             # parse agent query rule tags
             agent_query_rules = job.get('agent_query_rules', [])
             agent_config = 'default'
@@ -196,7 +205,7 @@ try:
 
                 # passthrough all agent slurm prefixed query rules to the slurm job
                 if key.startswith('slurm_'):
-                    slurm_arg = key.split('slurm_', 1)[1]
+                    slurm_arg = key.split('slurm_', 1)[1].replace('_', '-')
                     if val:
                         cmd.append('--{0}={1}'.format(slurm_arg, val))
                     else:

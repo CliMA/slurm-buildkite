@@ -1,4 +1,6 @@
 .api_token
+.exclude_nodes
+.*documenter_key
 buildkite-agent.cfg
 bin/buildkite-agent
 logs/

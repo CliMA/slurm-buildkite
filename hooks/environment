@@ -9,7 +9,6 @@
 # export SECRET_VAR=token
 
 set -euo pipefail # exit on failure or unset variable
-set -v
 
 export CI_BUILD_DIR="${BUILDKITE_BUILD_PATH}/${BUILDKITE_PIPELINE_SLUG}/${BUILDKITE_BUILD_NUMBER}"
 
@@ -27,6 +26,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
 
     cpu)
         echo "--- cpu env configuration"
+        module load singularity/3.5.2
         module load julia/${JULIA_VERSION:=1.4.2}
         module load openmpi/${OPENMPI_VERSION:=4.0.3} hdf5/1.10.1 netcdf-c/4.6.1
         export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
@@ -37,8 +37,8 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
 
         export OMPI_MCA_btl="self,tcp"
         
+        
         export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
-
 
         echo "--- slurm job configuration"
         sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,Reqgres,nnodes,nodelist
@@ -46,6 +46,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
 
     cpu-test)
         echo "--- cpu test env configuration"
+        module load singularity/3.5.2
         module load julia/${JULIA_VERSION:=1.5.1}
         module load openmpi/${OPENMPI_VERSION:=4.0.4} hdf5/1.10.1 netcdf-c/4.6.1
 
@@ -65,8 +66,9 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
 
     gpu)
         echo "--- gpu env configuration"
+        module load singularity/3.5.2
         module load julia/${JULIA_VERSION:=1.4.2}
-        module load cuda/${CUDA_VERSION:=10.0} openmpi/${OPENMPI_VERSION:=4.0.3}_cuda-${CUDA_VERSION:=10.0} hdf5/1.10.1 netcdf-c/4.6.1
+        module load cuda/${CUDA_VERSION:=10.2} openmpi/${OPENMPI_VERSION:=4.0.4}_cuda-${CUDA_VERSION:=10.2} hdf5/1.10.1 netcdf-c/4.6.1
 
         export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
 
@@ -87,6 +89,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
 
     gpu-test)
         echo "--- gpu test env configuration"
+        module load singularity/3.5.2
         module load julia/${JULIA_VERSION:=1.5.1}
         module load cuda/${CUDA_VERSION:=10.2} openmpi/${OPENMPI_VERSION:=4.0.4}_cuda-${CUDA_VERSION:=10.2} hdf5/1.10.1 netcdf-c/4.6.1
 
@@ -98,8 +101,8 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
 
         export OMPI_MCA_btl="self,tcp"
         
-        export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
-        
+        export DOCUMENTER_KEY=$(cat "$BUILDKITE_PATH/.documenter_key")
+
         echo "--- slurm job configuration"
         sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,Reqgres,nnodes,nodelist
 
@@ -113,4 +116,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
 
 esac
 
-set +v
+# Add pipeline specific ENV variables
+if [ "$BUILDKITE_PIPELINE_NAME" == "ClimateMachine-Docs" ]; then
+    export DOCUMENTER_KEY=$(cat "$BUILDKITE_PATH/.climatemachine_documenter_key")
+fi
