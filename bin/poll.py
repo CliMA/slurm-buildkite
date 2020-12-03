@@ -23,14 +23,19 @@ logger.addHandler(handler)
 
 BUILDS_ENDPOINT = 'https://api.buildkite.com/v2/organizations/clima/builds'
 
-# we pick an hour timedelta for the build window,
+# we pick an nhour timedelta for the build window,
 # but it just needs to be more than that cron poll interval
-def hour_ago_utc():
-    return (datetime.utcnow() - timedelta(hours=1)).replace(microsecond=0).isoformat() + 'Z'
+def hours_ago_utc(nhours):
+    return (datetime.utcnow() - timedelta(hours=nhours)).replace(microsecond=0).isoformat() + 'Z'
+
+# we pick a day ago timedelta for the cancel window,
+# to catch problematic overnight runs
+def day_ago_utc():
+    return (datetime.utcnow() - timedelta(days=1)).replace(microsecond=0).isoformat() + 'Z'
 
 
 def all_started_builds():
-    since = hour_ago_utc()
+    since = hours_ago_utc(nhours=6)
     npage, builds = 1, []
     while True:
         resp = requests.get(
@@ -53,7 +58,7 @@ def all_started_builds():
 
 
 def all_canceled_builds():
-    since = hour_ago_utc()
+    since = day_ago_utc()
     npage, builds = 1, []
     while True:
         resp = requests.get(
