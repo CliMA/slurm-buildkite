@@ -16,6 +16,8 @@ export CI_BUILD_DIR="${BUILDKITE_BUILD_PATH}/${BUILDKITE_PIPELINE_SLUG}/${BUILDK
 echo "--- Slurm Job ID: ${SLURM_JOB_ID}"
 
 module purge
+module load git/2.26.0
+module load rclone/1.53.2
 
 case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     # standard configurations
@@ -27,7 +29,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     cpu)
         echo "--- cpu env configuration"
         module load singularity/3.5.2
-        module load python/${PYTHON_VERSION:=3.8.5}
+        module load python3/${PYTHON_VERSION:=3.8.5}
         module load julia/${JULIA_VERSION:=1.4.2}
         module load openmpi/${OPENMPI_VERSION:=4.0.3} hdf5/1.10.1 netcdf-c/4.6.1
 
@@ -47,7 +49,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     cpu-test)
         echo "--- cpu test env configuration"
         module load singularity/3.5.2
-        module load python/${PYTHON_VERSION:=3.8.5}
+        module load python3/${PYTHON_VERSION:=3.8.5}
         module load julia/${JULIA_VERSION:=1.5.1}
         module load openmpi/${OPENMPI_VERSION:=4.0.4} hdf5/1.10.1 netcdf-c/4.6.1
 
@@ -68,7 +70,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     gpu)
         echo "--- gpu env configuration"
         module load singularity/3.5.2
-        module load python/${PYTHON_VERSION:=3.8.5}
+        module load python3/${PYTHON_VERSION:=3.8.5}
         module load julia/${JULIA_VERSION:=1.4.2}
         module load cuda/${CUDA_VERSION:=10.2} openmpi/${OPENMPI_VERSION:=4.0.4}_cuda-${CUDA_VERSION:=10.2} hdf5/1.10.1 netcdf-c/4.6.1
 
@@ -92,7 +94,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     gpu-test)
         echo "--- gpu test env configuration"
         module load singularity/3.5.2
-        module load python/${PYTHON_VERSION:=3.8.5}
+        module load python3/${PYTHON_VERSION:=3.8.5}
         module load julia/${JULIA_VERSION:=1.5.1}
         module load cuda/${CUDA_VERSION:=10.2} openmpi/${OPENMPI_VERSION:=4.0.4}_cuda-${CUDA_VERSION:=10.2} hdf5/1.10.1 netcdf-c/4.6.1
 
@@ -122,4 +124,12 @@ esac
 # Add pipeline specific ENV variables
 if [ "$BUILDKITE_PIPELINE_NAME" == "ClimateMachine-Docs" ]; then
     export DOCUMENTER_KEY=$(cat "$BUILDKITE_PATH/.climatemachine_documenter_key")
+fi
+
+if [ "$BUILDKITE_PIPELINE_NAME" == "ClimateMachineQA" ]; then
+    export SLACK_TOKEN=$(cat "$BUILDKITE_PATH/.slack_token")
+fi
+
+if [ "$BUILDKITE_PIPELINE_NAME" == "ClimateMachineQA-Microphysics" ]; then
+    export SLACK_TOKEN=$(cat "$BUILDKITE_PATH/.slack_token")
 fi

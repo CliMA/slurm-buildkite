@@ -1,6 +1,7 @@
 .api_token
 .exclude_nodes
 .*documenter_key
+.slack_token
 buildkite-agent.cfg
 bin/buildkite-agent
 logs/
