@@ -88,7 +88,7 @@ try:
 
     BUILDKITE_API_TOKEN = os.environ.get(
         'BUILDKITE_API_TOKEN',
-        open(joinpath(BUILDKITE_PATH,'.api_token'), 'r').read().rstrip()
+        open(joinpath(BUILDKITE_PATH,'.buildkite_token'), 'r').read().rstrip()
     )
     
     BUILDKITE_QUEUE = os.environ.get(

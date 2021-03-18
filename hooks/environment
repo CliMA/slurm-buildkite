@@ -30,7 +30,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         echo "--- cpu env configuration"
         module load singularity/3.5.2
         module load python3/${PYTHON_VERSION:=3.8.5}
-        module load julia/${JULIA_VERSION:=1.4.2}
+        module load julia/${JULIA_VERSION:=1.5.4}
         module load openmpi/${OPENMPI_VERSION:=4.0.3} hdf5/1.10.1 netcdf-c/4.6.1
 
         export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
@@ -39,7 +39,11 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         export JULIA_CUDA_USE_BINARYBUILDER=false
         export JULIA_MPI_BINARY=system
 
+        # this is set to not use shared memory segments as a btl transport
+        # they do not get cleaned up on the cluster
         export OMPI_MCA_btl="self,tcp"
+        # this is set to avoid rare race conditions on the same node with concurrent (step) jobs
+        export OMPI_MCA_orte_tmpdir_base="/tmp/${BUILDKITE_STEP_KEY}"
         export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
 
         echo "--- slurm job configuration"
@@ -50,7 +54,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         echo "--- cpu test env configuration"
         module load singularity/3.5.2
         module load python3/${PYTHON_VERSION:=3.8.5}
-        module load julia/${JULIA_VERSION:=1.5.1}
+        module load julia/${JULIA_VERSION:=1.5.4}
         module load openmpi/${OPENMPI_VERSION:=4.0.4} hdf5/1.10.1 netcdf-c/4.6.1
 
         export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
@@ -60,7 +64,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         export JULIA_MPI_BINARY=system
 
         export OMPI_MCA_btl="self,tcp"
-        
+        export OMPI_MCA_orte_tmpdir_base="/tmp/${BUILDKITE_STEP_KEY}"
         export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
         
         echo "--- slurm job configuration"
@@ -71,7 +75,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         echo "--- gpu env configuration"
         module load singularity/3.5.2
         module load python3/${PYTHON_VERSION:=3.8.5}
-        module load julia/${JULIA_VERSION:=1.4.2}
+        module load julia/${JULIA_VERSION:=1.5.4}
         module load cuda/${CUDA_VERSION:=10.2} openmpi/${OPENMPI_VERSION:=4.0.4}_cuda-${CUDA_VERSION:=10.2} hdf5/1.10.1 netcdf-c/4.6.1
 
         export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
@@ -81,7 +85,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         export JULIA_MPI_BINARY=system
 
         export OMPI_MCA_btl="self,tcp"
-
+        export OMPI_MCA_orte_tmpdir_base="/tmp/${BUILDKITE_STEP_KEY}"
         export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
 
         echo "--- slurm job configuration"
@@ -95,7 +99,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         echo "--- gpu test env configuration"
         module load singularity/3.5.2
         module load python3/${PYTHON_VERSION:=3.8.5}
-        module load julia/${JULIA_VERSION:=1.5.1}
+        module load julia/${JULIA_VERSION:=1.5.4}
         module load cuda/${CUDA_VERSION:=10.2} openmpi/${OPENMPI_VERSION:=4.0.4}_cuda-${CUDA_VERSION:=10.2} hdf5/1.10.1 netcdf-c/4.6.1
 
         export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
@@ -105,9 +109,8 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         export JULIA_MPI_BINARY=system
 
         export OMPI_MCA_btl="self,tcp"
+        export OMPI_MCA_orte_tmpdir_base="/tmp/${BUILDKITE_STEP_KEY}"
         
-        export DOCUMENTER_KEY=$(cat "$BUILDKITE_PATH/.documenter_key")
-
         echo "--- slurm job configuration"
         sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,Reqgres,nnodes,nodelist
 
@@ -118,7 +121,6 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     *)
         echo "agent config must init, cpu or gpu"
         ;;
-
 esac
 
 # Add pipeline specific ENV variables
