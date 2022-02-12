@@ -1,6 +1,7 @@
 #!/bin/bash
 source /etc/bashrc
-if [[ "$HOSTNAME" != "login1" ]]; then
+
+if [[ "$HOSTNAME" != "login1.cm.cluster" ]]; then
     exit 0
 fi
 

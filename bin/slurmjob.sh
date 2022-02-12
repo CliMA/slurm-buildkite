@@ -5,6 +5,7 @@
 
 BUILDKITE_PATH=${BUILDKITE_PATH:=/groups/esm/climaci}
 BUILDKITE_QUEUE=${BUILDKITE_QUEUE:=central}
+PATH="${BUILDKITE_PATH}/bin:$PATH"
 
 ${BUILDKITE_PATH}/bin/buildkite-agent start \
   --name "central-$1-%n" \
