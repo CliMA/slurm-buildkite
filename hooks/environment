@@ -18,6 +18,7 @@ echo "--- Slurm Job ID: ${SLURM_JOB_ID}"
 module purge
 module load git/2.26.0
 module load rclone/1.53.2
+module load gcloud/319.0.0
 
 case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     # standard configurations
