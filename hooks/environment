@@ -48,7 +48,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
 
         echo "--- slurm job configuration"
-        sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,Reqgres,nnodes,nodelist
+        sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,nnodes,nodelist
         ;;
 
     cpu-test)
@@ -69,7 +69,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
         
         echo "--- slurm job configuration"
-        sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,Reqgres,nnodes,nodelist
+        sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,rennodes,nodelist
         ;;
 
     gpu)
@@ -90,7 +90,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
 
         echo "--- slurm job configuration"
-        sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,Reqgres,nnodes,nodelist
+        sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,nnodes,nodelist
 
         echo "--- gpu device configuration"
         nvidia-smi -q
@@ -113,7 +113,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         export OMPI_MCA_orte_tmpdir_base="/tmp/${BUILDKITE_STEP_KEY}"
         
         echo "--- slurm job configuration"
-        sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,Reqgres,nnodes,nodelist
+        sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,nnodes,nodelist
 
         echo "--- gpu test device configuration"
         nvidia-smi -q
