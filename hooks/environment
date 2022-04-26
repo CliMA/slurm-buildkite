@@ -69,7 +69,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
         
         echo "--- slurm job configuration"
-        sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,rennodes,nodelist
+        sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,nnodes,nodelist
         ;;
 
     gpu)
