@@ -3,7 +3,7 @@
 #SBATCH --job-name=buildkite
 #SBATCH --reservation=clima
 
-BUILDKITE_PATH=${BUILDKITE_PATH:=/groups/esm/climaci}
+BUILDKITE_PATH=${BUILDKITE_PATH:=/groups/esm/slurm-buildkite}
 BUILDKITE_QUEUE=${BUILDKITE_QUEUE:=central}
 PATH="${BUILDKITE_PATH}/bin:$PATH"
 

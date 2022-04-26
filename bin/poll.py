@@ -83,7 +83,7 @@ try:
     # optional env overloads
     BUILDKITE_PATH = os.environ.get(
         'BUILDKITE_PATH',
-        '/groups/esm/climaci'
+        '/groups/esm/slurm-buildkite'
     )
 
     BUILDKITE_API_TOKEN = os.environ.get(

@@ -44,7 +44,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         # they do not get cleaned up on the cluster
         export OMPI_MCA_btl="self,tcp"
         # this is set to avoid rare race conditions on the same node with concurrent (step) jobs
-        export OMPI_MCA_orte_tmpdir_base="/tmp/${BUILDKITE_STEP_KEY}"
+        export OMPI_MCA_orte_tmpdir_base="/tmp/slurm-buildkite/${BUILDKITE_STEP_KEY}"
         export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
 
         echo "--- slurm job configuration"
@@ -65,7 +65,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         export JULIA_MPI_BINARY=system
 
         export OMPI_MCA_btl="self,tcp"
-        export OMPI_MCA_orte_tmpdir_base="/tmp/${BUILDKITE_STEP_KEY}"
+        export OMPI_MCA_orte_tmpdir_base="/tmp/slurm-buildkite/${BUILDKITE_STEP_KEY}"
         export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
         
         echo "--- slurm job configuration"
@@ -86,7 +86,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         export JULIA_MPI_BINARY=system
 
         export OMPI_MCA_btl="self,tcp"
-        export OMPI_MCA_orte_tmpdir_base="/tmp/${BUILDKITE_STEP_KEY}"
+        export OMPI_MCA_orte_tmpdir_base="/tmp/slurm-buildkite/${BUILDKITE_STEP_KEY}"
         export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
 
         echo "--- slurm job configuration"
@@ -110,7 +110,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         export JULIA_MPI_BINARY=system
 
         export OMPI_MCA_btl="self,tcp"
-        export OMPI_MCA_orte_tmpdir_base="/tmp/${BUILDKITE_STEP_KEY}"
+        export OMPI_MCA_orte_tmpdir_base="/tmp/slurm-buildkite/${BUILDKITE_STEP_KEY}"
         
         echo "--- slurm job configuration"
         sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,nnodes,nodelist
