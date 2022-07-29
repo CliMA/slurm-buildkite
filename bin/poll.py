@@ -35,7 +35,7 @@ def day_ago_utc():
 
 
 def all_started_builds():
-    since = hours_ago_utc(nhours=6)
+    since = hours_ago_utc(nhours=48)
     npage, builds = 1, []
     while True:
         resp = requests.get(
