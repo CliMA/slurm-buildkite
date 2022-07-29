@@ -30,7 +30,11 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
                 let COUNT=COUNT+1
             done 
             cd ${BUILDKITE_PIPELINE_SLUG}
-            git checkout -f ${BUILDKITE_COMMIT}
+            if [ "$BUILDKITE_COMMIT" = "HEAD" ]; then
+                git checkout -f ${BUILDKITE_BRANCH}
+            else
+                git checkout -f ${BUILDKITE_COMMIT}
+            fi
         else
             echo "--- Using cached git repo ${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
             cd "${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"

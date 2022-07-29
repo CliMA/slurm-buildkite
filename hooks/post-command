@@ -11,8 +11,8 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     cpu|cpu-test|gpu|gpu-test)
         echo "--- Slurm efficiency job output"
         # sleep for a bit (jobs resources are sampled at a specified interval)
-        # sleep 30s
-        # seff ${SLURM_JOB_ID}
+        sleep 10s
+        seff ${SLURM_JOB_ID}
         ;;
 esac
 

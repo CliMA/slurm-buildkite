@@ -14,6 +14,7 @@ export CI_BUILD_DIR="${BUILDKITE_BUILD_PATH}/${BUILDKITE_PIPELINE_SLUG}/${BUILDK
 
 # Slurm Job Info
 echo "--- Slurm Job ID: ${SLURM_JOB_ID}"
+scontrol show job ${SLURM_JOB_ID}
 
 module purge
 module load git/2.26.0
