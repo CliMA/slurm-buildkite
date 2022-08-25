@@ -33,13 +33,18 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         module load singularity/3.5.2
         module load python3/${PYTHON_VERSION:=3.8.5}
         module load julia/${JULIA_VERSION:=1.7.1}
-        module load mpich/${MPICH_VERSION:=4.0.0} hdf5/1.10.1 netcdf-c/4.6.1
+        if [ "${MPI_IMPL:=mpich}" == "mpich" ]; then
+            module load mpich/${MPICH_VERSION:=4.0.0} hdf5/1.12.1 netcdf-c/4.8.1
+        else
+            module load openmpi/${OPENMPI_VERSION:=4.1.1} hdf5/1.12.1-ompi411
+        fi
 
         export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
     
         export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:=$CI_BUILD_DIR/depot/cpu}"
         export JULIA_CUDA_USE_BINARYBUILDER=false
         export JULIA_MPI_BINARY=system
+        export JULIA_HDF5_PATH=""
 
         # this is set to not use shared memory segments as a btl transport
         # they do not get cleaned up on the cluster
@@ -57,13 +62,18 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         module load singularity/3.5.2
         module load python3/${PYTHON_VERSION:=3.8.5}
         module load julia/${JULIA_VERSION:=1.7.1}
-        module load mpich/${MPICH_VERSION:=4.0.0} hdf5/1.10.1 netcdf-c/4.6.1
+        if [ "${MPI_IMPL:=mpich}" == "mpich" ]; then
+            module load mpich/${MPICH_VERSION:=4.0.0} hdf5/1.12.1 netcdf-c/4.8.1
+        else
+            module load openmpi/${OPENMPI_VERSION:=4.1.1} hdf5/1.12.1-ompi411
+        fi
 
         export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
 
         export JULIA_DEPOT_PATH:="${CI_BUILD_DIR}/depot/cpu"
         export JULIA_CUDA_USE_BINARYBUILDER=false
         export JULIA_MPI_BINARY=system
+        export JULIA_HDF5_PATH=""
 
         export OMPI_MCA_btl="self,tcp"
         export OMPI_MCA_orte_tmpdir_base="/tmp/slurm-buildkite/${BUILDKITE_STEP_KEY}"
