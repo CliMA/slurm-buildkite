@@ -43,7 +43,7 @@ def all_started_builds():
             params = {
                 'page' : npage,
                 'per_page' : 100,
-                'state[]' : ['scheduled', 'running'],
+                'state[]' : ['scheduled', 'running', 'failing'],
                 'created_from' : since
             },
             headers = {
