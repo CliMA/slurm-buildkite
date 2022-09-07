@@ -19,7 +19,6 @@ scontrol show job ${SLURM_JOB_ID}
 module purge
 module load git/2.26.0
 module load rclone/1.53.2
-module load gcloud/319.0.0
 
 case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     # standard configurations
@@ -40,7 +39,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         fi
 
         export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
-    
+
         export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:=$CI_BUILD_DIR/depot/cpu}"
         export JULIA_CUDA_USE_BINARYBUILDER=false
         export JULIA_MPI_BINARY=system
@@ -78,7 +77,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         # export OMPI_MCA_btl="self,tcp"
         export OMPI_MCA_orte_tmpdir_base="/tmp/slurm-buildkite/${BUILDKITE_STEP_KEY}"
         export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
-        
+
         echo "--- slurm job configuration"
         sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,nnodes,nodelist
         ;;
@@ -122,7 +121,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
 
         # export OMPI_MCA_btl="self,tcp"
         export OMPI_MCA_orte_tmpdir_base="/tmp/slurm-buildkite/${BUILDKITE_STEP_KEY}"
-        
+
         echo "--- slurm job configuration"
         sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,nnodes,nodelist
 
