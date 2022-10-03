@@ -35,7 +35,12 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         if [ "${MPI_IMPL:=mpich}" == "mpich" ]; then
             module load mpich/${MPICH_VERSION:=4.0.0} hdf5/1.12.1 netcdf-c/4.8.1
         else
-            module load openmpi/${OPENMPI_VERSION:=4.1.1} hdf5/1.12.1-ompi411
+            module load openmpi/${OPENMPI_VERSION:=4.1.1}
+            if [ "${OPENMPI_VERSION:=4.1.1}" == "4.1.1" ]; then
+                module load hdf5/1.12.1-ompi411
+            else
+                module load hdf5/1.12.1
+            fi
         fi
 
         export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
