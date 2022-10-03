@@ -1,0 +1,7 @@
+agents:
+  queue: central
+
+steps:
+  - label: "hello"
+    command:
+      - echo "Hello world"
