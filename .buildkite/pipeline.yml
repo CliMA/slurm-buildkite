@@ -12,6 +12,5 @@ steps:
   - label: "follow"
     command:
       - buildkite-agent meta-data get "testkey" --job "$$BUILDKITE_JOB_ID"
-      - buildkite-agent meta-data get "testkey" --job "$$BUILDKITE_STEP_ID"
       - buildkite-agent meta-data get "testkey" --job "$$BUILDKITE_BUILD_ID"
       - buildkite-agent meta-data get "testkey" --job "0183aa8f-226a-4c63-b35d-21a12cbbc4f2"
