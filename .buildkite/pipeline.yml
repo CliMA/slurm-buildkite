@@ -5,3 +5,10 @@ steps:
   - label: "hello"
     command:
       - echo "Hello world"
+      - buildkite-agent meta-data set "testkey" "my job is $$BUILDKITE_JOB_ID"
+
+  - wait
+  
+  - label: "follow"
+    command:
+      - buildkite-agent meta-data get "testkey" --job "$$BUILDKITE_JOB_ID"
