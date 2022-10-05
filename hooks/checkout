@@ -35,6 +35,12 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
             else
                 git checkout -f ${BUILDKITE_COMMIT}
             fi
+            # emulate https://github.com/buildkite/agent/blob/7e0166eebed5bf3cc289edae97145803429e75f9/bootstrap/bootstrap.go#L1448-L1458
+            if ! buildkite-agent meta-data exists "buildkite:git:commit" ; then
+                echo "Sending Git commit information to Buildkite"
+                git --no-pager show HEAD -s --format=fuller --no-color -- | buildkite-agent meta-data set "buildkite:git:commit"
+            fi
+                
         else
             echo "--- Using cached git repo ${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
             cd "${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
