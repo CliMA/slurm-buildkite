@@ -1,0 +1,1 @@
+sstat -a --format=JobId,AveRSS,MaxRSS,AveVMSize,MaxVMSize,NodeList,NTasks -j $SLURM_JOB_ID
