@@ -228,7 +228,8 @@ try:
             cmd.append(joinpath(BUILDKITE_PATH, 'bin/slurmjob.sh'))
             cmd.append(agent_config)
             cmd.append(jobid)
-            cmd.append(agent_modules)
+            if agent_modules:
+                cmd.append(agent_modules)
             
             slurmjob_id = 0
             if not DEBUG:
