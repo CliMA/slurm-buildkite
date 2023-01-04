@@ -1,5 +1,6 @@
 agents:
   queue: central
+  modules: mpich/4.0.0 julia/1.8.3
 
 steps:
   - label: "hello"
