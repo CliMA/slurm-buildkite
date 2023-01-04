@@ -11,4 +11,4 @@ ${BUILDKITE_PATH}/bin/buildkite-agent start \
   --name "central-$1-%n" \
   --config "${BUILDKITE_PATH}/buildkite-agent.cfg" \
   --acquire-job "$2" \
-  --tags "jobid=${SLURM_JOB_ID},queue=${BUILDKITE_QUEUE},config=$1,ntasks=${SLURM_NTASKS}"
+  --tags "jobid=${SLURM_JOB_ID},queue=${BUILDKITE_QUEUE},config=$1,ntasks=${SLURM_NTASKS},modules=$3"

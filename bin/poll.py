@@ -196,16 +196,21 @@ try:
             agent_query_rules = job.get('agent_query_rules', [])
             agent_config = 'default'
             agent_queue  = 'default'
+            agent_modules = ""
             for tag in agent_query_rules:
                 # e.g. tag = 'slurm_ntasks=3'
                 key, val = tag.split('=', 1)
 
-                if key.startswith('queue'):
+                if key == 'queue':
                     agent_queue = val
                     continue
 
-                if key.startswith('config'):
+                if key == 'config':
                     agent_config = val
+                    continue
+
+                if key == "modules":
+                    agent_modules = val
                     continue
 
                 # passthrough all agent slurm prefixed query rules to the slurm job
@@ -223,6 +228,7 @@ try:
             cmd.append(joinpath(BUILDKITE_PATH, 'bin/slurmjob.sh'))
             cmd.append(agent_config)
             cmd.append(jobid)
+            cmd.append(agent_modules)
             
             slurmjob_id = 0
             if not DEBUG:

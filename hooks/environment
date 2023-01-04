@@ -11,6 +11,7 @@
 set -euo pipefail # exit on failure or unset variable
 
 export CI_BUILD_DIR="${BUILDKITE_BUILD_PATH}/${BUILDKITE_PIPELINE_SLUG}/${BUILDKITE_BUILD_NUMBER}"
+export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
 
 # Slurm Job Info
 echo "--- Slurm Job ID: ${SLURM_JOB_ID}"
@@ -18,17 +19,15 @@ scontrol show job ${SLURM_JOB_ID}
 
 module purge
 module load git/2.26.0
-module load rclone/1.53.2
 
 case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     # standard configurations
-    "")
+   ""|default)
         module load ${BUILDKITE_AGENT_META_DATA_MODULES}
         ;;
 
-    init|default)
+    init)
         echo "--- init env configuration"
-        export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
         ;;
 
     cpu)
@@ -46,8 +45,6 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
                 module load hdf5/1.12.1
             fi
         fi
-
-        export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
 
         export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:=$CI_BUILD_DIR/depot/cpu}"
         export JULIA_CUDA_USE_BINARYBUILDER=false
@@ -76,8 +73,6 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
             module load openmpi/${OPENMPI_VERSION:=4.1.1} hdf5/1.12.1-ompi411
         fi
 
-        export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
-
         export JULIA_DEPOT_PATH:="${CI_BUILD_DIR}/depot/cpu"
         export JULIA_CUDA_USE_BINARYBUILDER=false
         export JULIA_MPI_BINARY=system
@@ -97,8 +92,6 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         module load python3/${PYTHON_VERSION:=3.8.5}
         module load julia/${JULIA_VERSION:=1.7.1}
         module load cuda/${CUDA_VERSION:=10.2} openmpi/${OPENMPI_VERSION:=4.0.4}_cuda-${CUDA_VERSION:=10.2} hdf5/1.10.1 netcdf-c/4.6.1
-
-        export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
 
         export JULIA_DEPOT_PATH="${JUIA_DEPOT_PATH:=$CI_BUILD_DIR/depot/gpu}"
         export JULIA_CUDA_USE_BINARYBUILDER=false
@@ -121,8 +114,6 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         module load python3/${PYTHON_VERSION:=3.8.5}
         module load julia/${JULIA_VERSION:=1.7.1}
         module load cuda/${CUDA_VERSION:=10.2} openmpi/${OPENMPI_VERSION:=4.0.4}_cuda-${CUDA_VERSION:=10.2} hdf5/1.10.1 netcdf-c/4.6.1
-
-        export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
 
         export JULIA_DEPOT_PATH="${CI_BUILD_DIR}/depot/gpu"
         export JULIA_CUDA_USE_BINARYBUILDER=false
