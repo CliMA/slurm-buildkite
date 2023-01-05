@@ -5,4 +5,9 @@ agents:
 steps:
   - label: "hello"
     command:
-      - echo "Hello world"
+      - julia -e 'println("hello world")'
+  - label: "hello 2"
+    command:
+      - julia -e 'println("hello world")'
+    agents:
+      slurm_mem: 2G
