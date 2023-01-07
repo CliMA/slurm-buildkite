@@ -3,11 +3,16 @@ agents:
   modules: mpich/4.0.0 julia/1.8.3
 
 steps:
+  - label: ""
+    command:
+      - julia -e 'X = ones(UInt8, 1024); sleep(60); println(sum(X))' # allocate 1KB
+      - sstat -j $$SLURM_JOB_ID -a --format=JobId,AveRSS,MaxRSS,AveVMSize,MaxVMSize,NodeList,NTasks
+      - sacct -j $$SLURM_JOB_ID --format="JobName,AllocTRES,TRESUsageInMax" --parsable --units=G
   - label: "hello"
     command:
-      - julia -e 'println("hello world")'
-  - label: "hello 2"
-    command:
-      - julia -e 'println("hello world")'
+      - srun julia -e 'X = ones(UInt8, 1024^3); sleep(60); println(sum(X))' # allocate 1GB
+      - sstat -j $$SLURM_JOB_ID -a --format=JobId,AveRSS,MaxRSS,AveVMSize,MaxVMSize,NodeList,NTasks
+      - sacct -j $$SLURM_JOB_ID --format="JobName,AllocTRES,TRESUsageInMax" --parsable --units=G
     agents:
-      slurm_mem: 2G
+      slurm_ntasks_per_node: 3
+      slurm_mem_per_cpu: 4G
