@@ -8,11 +8,15 @@ steps:
       - julia -e 'X = ones(UInt8, 1024); sleep(60); println(sum(X))' # allocate 1KB
       - sstat -j $$SLURM_JOB_ID -a --format=JobId,AveRSS,MaxRSS,AveVMSize,MaxVMSize,NodeList,NTasks
       - sacct -j $$SLURM_JOB_ID --format="JobName,AllocTRES,TRESUsageInMax" --parsable --units=G
+  
   - label: "hello"
     command:
-      - srun julia -e 'X = ones(UInt8, 1024^3); sleep(60); println(sum(X))' # allocate 1GB
+      - srun --profile=task --acctg-freq=10 julia -e 'X = ones(UInt8, 1024^3); sleep(60); println(sum(X))' # allocate 1GB
       - sstat -j $$SLURM_JOB_ID -a --format=JobId,AveRSS,MaxRSS,AveVMSize,MaxVMSize,NodeList,NTasks
       - sacct -j $$SLURM_JOB_ID --format="JobName,AllocTRES,TRESUsageInMax" --parsable --units=G
+      - sh5util -j $$SLURM_JOB_ID -o profile.hdf5
+    artifact_paths:
+      - "profile.hdf5"
     agents:
       slurm_ntasks_per_node: 3
       slurm_mem_per_cpu: 4G
