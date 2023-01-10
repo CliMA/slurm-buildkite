@@ -1,6 +1,6 @@
 agents:
   queue: central
-  modules: julia/1.8.5 openmpi/4.1.4 nsight-systems/2022.5.1
+  modules: julia/1.8.5 openmpi/4.1.4 nsight-systems/2022.2.1
 
 steps:
 
@@ -27,6 +27,8 @@ steps:
     agents:
       slurm_ntasks_per_node: 3
       slurm_mem_per_cpu: 4G
+      slurm_time: 00:05:00
+
 
   - label: "Nsight - single node profile"
     command:
@@ -35,6 +37,7 @@ steps:
       - "report-single.nsys-rep"
     agents:
       slurm_ntasks_per_node: 3
+      slurm_time: 00:05:00
 
   - label: "Nsight - multi node profile"
     command:
@@ -45,3 +48,4 @@ steps:
       slurm_cpus_per_task: 2
       slurm_ntasks_per_node: 2
       slurm_nodes: 2
+      slurm_time: 00:05:00
