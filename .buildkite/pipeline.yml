@@ -1,19 +1,24 @@
 agents:
   queue: central
-  modules: mpich/4.0.0 julia/1.8.3
+  modules: julia/1.8.5 openmpi/4.1.4 nsight-systems/2022.2.1
 
 steps:
-  - label: ""
+
+  - label: "instantiate Julia project"
+    command:
+      - julia --project=.ci -e 'using Pkg; Pkg.instantiate()'
+
+  - wait
+
+  - label: "Memory summary"
     command:
       - julia -e 'X = ones(UInt8, 1024); sleep(60); println(sum(X))' # allocate 1KB
       - sstat -j $$SLURM_JOB_ID -a --format=JobId,AveRSS,MaxRSS,AveVMSize,MaxVMSize,NodeList,NTasks
       - sacct -j $$SLURM_JOB_ID --format="JobName,AllocTRES,TRESUsageInMax" --parsable --units=G
   
-  - label: "hello"
+  - label: "HDF5 memory profile"
     command:
       - srun --profile=task --acctg-freq=10 julia -e 'X = ones(UInt8, 1024^3); sleep(60); println(sum(X))' # allocate 1GB
-      - sstat -j $$SLURM_JOB_ID -a --format=JobId,AveRSS,MaxRSS,AveVMSize,MaxVMSize,NodeList,NTasks
-      - sacct -j $$SLURM_JOB_ID --format="JobName,AllocTRES,TRESUsageInMax" --parsable --units=G
       - sh5util -j $$SLURM_JOB_ID
       - sh5util -j $$SLURM_JOB_ID -E --series=Tasks -l Node:TimeSeries
     artifact_paths:
@@ -21,4 +26,23 @@ steps:
       - "extract_*.csv"
     agents:
       slurm_ntasks_per_node: 3
+      slurm_mem_per_cpu: 4G
+
+  - label: "Nsight - single node profile"
+    command:
+      - nsys profile --output=report-single --trace=mpi --mpi-impl=openmpi srun --cpu-bind=cores julia --project=.ci .ci/mpi.jl
+    artifact_paths:
+      - "report-single.nsys-rep"
+    agents:
+      slurm_ntasks_per_node: 3
+      slurm_mem_per_cpu: 4G
+
+  - label: "Nsight - multi node profile"
+    command:
+      - srun --cpu-bind=cores nsys profile --output=report-multi-%q{PMI_RANK} --trace=mpi --mpi-impl=openmpi julia --project=.ci .ci/mpi.jl
+    artifact_paths:
+      - "report-multi-*.nsys-rep"
+    agents:
+      slurm_ntasks_per_node: 2
+      slurm_nodes: 2
       slurm_mem_per_cpu: 4G
