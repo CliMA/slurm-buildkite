@@ -1,6 +1,6 @@
 agents:
   queue: central
-  modules: julia/1.8.5 openmpi/4.1.4 nsight-systems/2022.2.1
+  modules: julia/1.8.5 openmpi/4.1.4 nsight-systems/2022.5.1
 
 steps:
 
@@ -30,12 +30,11 @@ steps:
 
   - label: "Nsight - single node profile"
     command:
-      - nsys profile --output=report-single --trace=mpi --mpi-impl=openmpi srun --cpu-bind=cores julia --project=.ci .ci/mpi.jl
+      - nsys profile --output=report-single --trace=mpi --mpi-impl=openmpi srun julia --project=.ci .ci/mpi.jl
     artifact_paths:
       - "report-single.nsys-rep"
     agents:
       slurm_ntasks_per_node: 3
-      slurm_mem_per_cpu: 4G
 
   - label: "Nsight - multi node profile"
     command:
@@ -43,6 +42,6 @@ steps:
     artifact_paths:
       - "report-multi-*.nsys-rep"
     agents:
+      slurm_cpus_per_task: 2
       slurm_ntasks_per_node: 2
       slurm_nodes: 2
-      slurm_mem_per_cpu: 4G
