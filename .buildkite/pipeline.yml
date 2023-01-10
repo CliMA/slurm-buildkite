@@ -3,6 +3,22 @@ agents:
   modules: mpich/4.0.0 julia/1.8.3
 
 steps:
+  - label: ""
+    command:
+      - julia -e 'X = ones(UInt8, 1024); sleep(60); println(sum(X))' # allocate 1KB
+      - sstat -j $$SLURM_JOB_ID -a --format=JobId,AveRSS,MaxRSS,AveVMSize,MaxVMSize,NodeList,NTasks
+      - sacct -j $$SLURM_JOB_ID --format="JobName,AllocTRES,TRESUsageInMax" --parsable --units=G
+  
   - label: "hello"
     command:
-      - echo "Hello world"
+      - srun --profile=task --acctg-freq=10 julia -e 'X = ones(UInt8, 1024^3); sleep(60); println(sum(X))' # allocate 1GB
+      - sstat -j $$SLURM_JOB_ID -a --format=JobId,AveRSS,MaxRSS,AveVMSize,MaxVMSize,NodeList,NTasks
+      - sacct -j $$SLURM_JOB_ID --format="JobName,AllocTRES,TRESUsageInMax" --parsable --units=G
+      - sh5util -j $$SLURM_JOB_ID
+      - sh5util -j $$SLURM_JOB_ID -E --series=Tasks -l Node:TimeSeries
+    artifact_paths:
+      - "job_*.h5"
+      - "extract_*.csv"
+    agents:
+      slurm_ntasks_per_node: 3
+      slurm_mem_per_cpu: 4G
