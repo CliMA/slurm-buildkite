@@ -11,8 +11,8 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     init|default)
         echo "--- Init working build directory"
         mkdir -p ${CI_BUILD_DIR} && cd ${CI_BUILD_DIR}
-       
-        if [ ! -d "${BUILDKITE_BUILD_CHECKOUT_PATH}" ]; then
+
+        if [ ! -d "${BUILDKITE_BUILD_CHECKOUT_PATH}/.git" ]; then
             echo "--- Init clone and checkout" 
             COUNT=1
             while true; do
