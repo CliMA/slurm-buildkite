@@ -12,11 +12,11 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         echo "--- Init working build directory"
         mkdir -p ${CI_BUILD_DIR} && cd ${CI_BUILD_DIR}
        
-        if [ ! -d "${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}" ]; then
+        if [ ! -d "${BUILDKITE_BUILD_CHECKOUT_PATH}" ]; then
             echo "--- Init clone and checkout" 
             COUNT=1
             while true; do
-                git clone ${BUILDKITE_GIT_CLONE_FLAGS} ${BUILDKITE_REPO} ${BUILDKITE_PIPELINE_SLUG}
+                git clone ${BUILDKITE_GIT_CLONE_FLAGS} ${BUILDKITE_REPO} "${BUILDKITE_BUILD_CHECKOUT_PATH}"
                 if [ $? -eq 0 ]; then
                     break
                 fi
@@ -29,11 +29,11 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
                 fi 
                 let COUNT=COUNT+1
             done 
-            cd ${BUILDKITE_PIPELINE_SLUG}
+            cd "${BUILDKITE_BUILD_CHECKOUT_PATH}"
             if [ "$BUILDKITE_COMMIT" = "HEAD" ]; then
-                git checkout -f ${BUILDKITE_BRANCH}
+                git checkout -f "${BUILDKITE_BRANCH}"
             else
-                git checkout -f ${BUILDKITE_COMMIT}
+                git checkout -f "${BUILDKITE_COMMIT}"
             fi
             # emulate https://github.com/buildkite/agent/blob/7e0166eebed5bf3cc289edae97145803429e75f9/bootstrap/bootstrap.go#L1448-L1458
             if ! buildkite-agent meta-data exists "buildkite:git:commit" ; then
@@ -42,14 +42,14 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
             fi
                 
         else
-            echo "--- Using cached git repo ${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
-            cd "${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
+            echo "--- Using cached git repo ${BUILDKITE_BUILD_CHECKOUT_PATH}"
+            cd "${BUILDKITE_BUILD_CHECKOUT_PATH}"
         fi 
         ;;
 
     *)
-        echo "--- Using cached git repo ${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
-        cd "${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
+        echo "--- Using cached git repo ${BUILDKITE_BUILD_CHECKOUT_PATH}"
+        cd "${BUILDKITE_BUILD_CHECKOUT_PATH}"
         ;;
 esac
 

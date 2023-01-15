@@ -7,8 +7,8 @@ set -euo pipefail # exit on failure or unset variable
 set -v
 
 # override curl options for Pkg artifacts
-export CURL_HOME="$(dirname "$BUILDKITE_BUILD_CHECKOUT_PATH")"
-printf -- "--retry 8\n" > "$CURL_HOME/.curlrc"
+# export CURL_HOME="$(dirname "$BUILDKITE_BUILD_CHECKOUT_PATH")"
+# printf -- "--retry 8\n" > "$CURL_HOME/.curlrc"
 
 
 case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in

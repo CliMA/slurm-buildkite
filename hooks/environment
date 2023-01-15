@@ -11,7 +11,7 @@
 set -euo pipefail # exit on failure or unset variable
 
 export CI_BUILD_DIR="${BUILDKITE_BUILD_PATH}/${BUILDKITE_PIPELINE_SLUG}/${BUILDKITE_BUILD_NUMBER}"
-export BUILDKITE_BUILD_CHECKOUT_PATH=${CI_BUILD_DIR}
+export BUILDKITE_BUILD_CHECKOUT_PATH="${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
 
 # Slurm Job Info
 echo "--- Slurm Job ID: ${SLURM_JOB_ID}"
@@ -30,7 +30,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     # standard configurations
    ""|default)
         module load ${BUILDKITE_AGENT_META_DATA_MODULES:-}
-        export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$BUILDKITE_BUILD_CHECKOUT_PATH/depot/default}"
+        export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$CI_BUILD_DIR/depot/default}"
         ;;
 
     init)
