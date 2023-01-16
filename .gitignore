@@ -1,3 +1,5 @@
+.depot
+.instantiate
 .exclude_nodes
 .*documenter_key
 .*_token

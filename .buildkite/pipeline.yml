@@ -7,8 +7,8 @@ steps:
   - label: "instantiate Julia projects"
     key: "init"
     command:
+      - make
       - julia --project=.ci -e 'using Pkg; Pkg.instantiate()'
-      - julia --project=utils -e 'using Pkg; Pkg.instantiate()'
 
   - wait
 
@@ -60,3 +60,11 @@ steps:
       slurm_ntasks_per_node: 2
       slurm_nodes: 2
       slurm_time: 00:05:00
+
+  - wait
+
+  - label: "Build history"
+    command:
+      - bin/build_history master
+    artifact_paths:
+      - "build_history.html"
