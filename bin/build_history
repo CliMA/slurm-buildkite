@@ -2,7 +2,7 @@
 #=
 module purge
 module load julia/1.8.5
-exec julia --color=yes --startup-file=no "${BASH_SOURCE[0]}" "$@"
+exec julia --color=yes --startup-file=no "$0" "$@"
 =#
 LOAD_PATH[1] = joinpath(@__DIR__, "..",)
 DEPOT_PATH[1] = joinpath(@__DIR__, "..", ".depot")
