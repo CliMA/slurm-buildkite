@@ -12,6 +12,7 @@ set -euo pipefail # exit on failure or unset variable
 
 export CI_BUILD_DIR="${BUILDKITE_BUILD_PATH}/${BUILDKITE_PIPELINE_SLUG}/${BUILDKITE_BUILD_NUMBER}"
 export BUILDKITE_BUILD_CHECKOUT_PATH="${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
+export BUILDKITE_API_TOKEN=$(cat "${BUILDKITE_BIN_PATH}/../.buildkite_token")
 
 # Slurm Job Info
 echo "--- Slurm Job ID: ${SLURM_JOB_ID}"
