@@ -4,19 +4,23 @@ agents:
 
 steps:
 
-  - label: "instantiate Julia project"
+  - label: "instantiate Julia projects"
+    key: "init"
     command:
       - julia --project=.ci -e 'using Pkg; Pkg.instantiate()'
+      - julia --project=utils -e 'using Pkg; Pkg.instantiate()'
 
   - wait
 
   - label: "Memory summary"
+    key: "mem-summary"
     command:
       - julia -e 'X = ones(UInt8, 1024); sleep(60); println(sum(X))' # allocate 1KB
       - sstat -j $$SLURM_JOB_ID -a --format=JobId,AveRSS,MaxRSS,AveVMSize,MaxVMSize,NodeList,NTasks
       - sacct -j $$SLURM_JOB_ID --format="JobName,AllocTRES,TRESUsageInMax" --parsable --units=G
   
   - label: "HDF5 memory profile"
+    key: "hdf5-mem-profile"
     command:
       - srun --profile=task --acctg-freq=10 julia -e 'X = ones(UInt8, 1024^3); sleep(60); println(sum(X))' # allocate 1GB
       - sh5util -j $$SLURM_JOB_ID
@@ -31,6 +35,7 @@ steps:
 
 
   - label: "Nsight - single node profile"
+    key: "nsys-single"
     command:
       - nsys profile --output=report-single --trace=mpi --mpi-impl=openmpi srun julia --project=.ci .ci/mpi.jl
     artifact_paths:
@@ -40,6 +45,7 @@ steps:
       slurm_time: 00:05:00
 
   - label: "Nsight - multi node profile"
+    key: "nsys-multi"
     command:
       - srun --cpu-bind=cores nsys profile --output=report-multi-%q{PMI_RANK} --trace=mpi --mpi-impl=openmpi julia --project=.ci .ci/mpi.jl
     artifact_paths:
