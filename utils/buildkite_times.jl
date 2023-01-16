@@ -3,7 +3,8 @@ using HTTP, JSON, Plots, Dates, DataFrames, TimeZones
 branch = ARGS[1]
 pipeline = ENV["BUILDKITE_PIPELINE_SLUG"]
 buildkite_api_token = ENV["BUILDKITE_API_TOKEN"]
-buildkite_endpoint = "https://api.buildkite.com/v2/organizations/clima/pipelines/$pipeline/builds"
+buildkite_builds_endpoint = "https://api.buildkite.com/v2/organizations/clima/pipelines/$pipeline/builds"
+build_number = ENV["BUILDKITE_BUILD_NUMBER"]
 
 function append_buildkite_jobs!(buildkite_jobs_df, json_body)
     for build in json_body
@@ -64,9 +65,8 @@ function query_buildkite_jobs()
     for page = 1:cld(max_builds, per_page)
         @debug "Buildkite API request" page
         resp = HTTP.get(
-            buildkite_endpoint,
-            Dict("Authorization" => "Bearer $buildkite_api_token",
-                );
+            buildkite_builds_endpoint,
+            Dict("Authorization" => "Bearer $buildkite_api_token");
             query = Dict(
                 "page" => page,
                 "per_page" => per_page,
@@ -83,6 +83,16 @@ function query_buildkite_jobs()
             break
         end
     end
+    
+    # add the current job as well
+    resp = HTTP.get(
+        "$buildkite_builds_endpoint/$build_number",
+        Dict("Authorization" => "Bearer $buildkite_api_token")
+    )
+    json_body = JSON.Parser.parse(String(resp.body))
+    num_builds += 1
+    append_buildkite_jobs!(buildkite_jobs_df, [json_body])
+
     @info "Buildkite API requests" num_builds num_jobs=nrow(buildkite_jobs_df)
     return buildkite_jobs_df
 end
