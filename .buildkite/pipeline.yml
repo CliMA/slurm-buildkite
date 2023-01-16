@@ -7,8 +7,8 @@ steps:
   - label: "instantiate Julia projects"
     key: "init"
     command:
+      - make
       - julia --project=.ci -e 'using Pkg; Pkg.instantiate()'
-      - julia --project=utils -e 'using Pkg; Pkg.instantiate()'
 
   - wait
 
@@ -60,6 +60,6 @@ steps:
 
   - label: "Build history"
     command:
-      - julia --project=utils utils/buildkite_history.jl master
+      - bin/build_history master
     artifact_paths:
-      - "build_statistics.html"
+      - "build_history.html"
