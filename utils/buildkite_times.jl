@@ -1,8 +1,9 @@
 using HTTP, JSON, Plots, Dates, DataFrames, TimeZones
 
-token_path = joinpath(@__DIR__, "..", ".buildkite_token")
-buildkite_api_token = readchomp(token_path)
-buildkite_endpoint = "https://api.buildkite.com/v2/organizations/clima/pipelines/climacore-ci/builds"
+branch = ARGS[1]
+pipeline = ENV["BUILDKITE_PIPELINE_SLUG"]
+buildkite_api_token = ENV["BUILDKITE_API_TOKEN"]
+buildkite_endpoint = "https://api.buildkite.com/v2/organizations/clima/pipelines/$pipeline/builds"
 
 function append_buildkite_jobs!(buildkite_jobs_df, json_body)
     for build in json_body
@@ -68,7 +69,7 @@ function query_buildkite_jobs()
             query = Dict(
                 "page" => page,
                 "per_page" => per_page,
-                "branch" => "staging",
+                "branch" => branch,
                 "state" => "passed",
                 "created_from" => "$(now() - Year(1))Z",
             )
