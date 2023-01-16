@@ -17,6 +17,7 @@ steps:
     command:
       - ": > print-out-0 && tail -f print-out-0 &"
       - srun --output=print-out-%t printenv PMI_RANK
+      - kill %1
     agents:
       slurm_ntasks_per_node: 2
       slurm_nodes: 2
