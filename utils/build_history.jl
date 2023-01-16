@@ -168,4 +168,4 @@ plt_combined = plot(
     layout=(2,1), 
     size=(800,800))
 
-Plots.html(plt_combined, "build_statistics")
+Plots.html(plt_combined, "build_history")

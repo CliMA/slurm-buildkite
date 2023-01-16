@@ -58,8 +58,8 @@ steps:
 
   - wait
 
-  - label: "Plots"
+  - label: "Build history"
     command:
-      - julia --project=utils utils/buildkite_times.jl master
+      - julia --project=utils utils/buildkite_history.jl master
     artifact_paths:
       - "build_statistics.html"
