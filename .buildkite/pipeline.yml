@@ -55,3 +55,11 @@ steps:
       slurm_ntasks_per_node: 2
       slurm_nodes: 2
       slurm_time: 00:05:00
+
+  - wait
+
+  - label: "Plots"
+    command:
+      - julia --project=utils utils/buildkite_times.jl master
+    artifact_paths:
+      - "build_statistics.html"
