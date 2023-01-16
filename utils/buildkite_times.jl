@@ -1,104 +1,155 @@
-using HTTP, JSON, Plots, Dates, DataFrames
+using HTTP, JSON, Plots, Dates, DataFrames, TimeZones
 
 token_path = joinpath(@__DIR__, "..", ".buildkite_token")
 buildkite_api_token = readchomp(token_path)
 buildkite_endpoint = "https://api.buildkite.com/v2/organizations/clima/pipelines/climacore-ci/builds"
 
-
-resp = HTTP.get(
-    buildkite_endpoint,
-    Dict("Authorization" => "Bearer $buildkite_api_token",
-        );
-    params = Dict(
-        "page" => 1,
-        "per_page" => 100,
-        "state[]" => ["scheduled", "running", "failing"],
-        # "created_from" => since
-    )
-)
-
-json_body = JSON.Parser.parse(String(resp.body))
-
-build = json_body[1]
-job = build["jobs"][1]
-job["type"]
-job["step_key"]
-
-
-function extract_jobs(json_body)
-    data = DataFrame("build_number" => Int[], "step_key" => String[], "jobid" => Int[], "state" => String[])
+function append_buildkite_jobs!(buildkite_jobs_df, json_body)
     for build in json_body
         build_number = build["number"]    
+        build_scheduled_at = ZonedDateTime(build["scheduled_at"])
         for job in build["jobs"]
             if job["type"] != "script"
                 continue
             end
+            state = job["state"]
+            if state != "passed"
+                continue
+            end
             step_key = job["step_key"]
+            job_started_at = ZonedDateTime(job["started_at"])
+            job_finished_at = ZonedDateTime(job["finished_at"])            
             if isnothing(step_key)
                 continue
             end
-            state = job["state"]
             agent = job["agent"]
             if isnothing(agent)
                 continue
             end
             agent_meta_data = agent["meta_data"]
-            jobid = nothing
+            slurm_job_id = nothing
             for item in agent_meta_data
                 key,value = split(item,"=", limit=2)
                 if key == "jobid"
-                    jobid = parse(Int, value)
+                    slurm_job_id = parse(Int, value)
                     break
                 end
             end
-            if isnothing(jobid)
+            if isnothing(slurm_job_id)
                 continue
             end
-            push!(data, (;build_number, step_key, jobid, state))
+            push!(buildkite_jobs_df, (;build_number, step_key, slurm_job_id, state, build_scheduled_at, job_started_at, job_finished_at))
         end
     end
-    return data
+    return buildkite_jobs_df
 end
-extract_jobs(json_body)
 
 
-
-builds = []
-npages = 2
-for n in 1:npages
-    resp = HTTP.get(
-        buildkite_endpoint,
-        Dict("Authorization" => "Bearer " * buildkite_api_token,
-            );
-        #params/query don't work
-        params=Dict("page" => n,
-            "per_page" => 100,
-            "state[]" => ["scheduled", "running", "failing"])
-        # "created_from" => since
+function query_buildkite_jobs()
+    buildkite_jobs_df = DataFrame(
+        "build_number" => Int[], 
+        "step_key" => String[], 
+        "slurm_job_id" => Int[], 
+        "state" => String[],
+        "build_scheduled_at" => ZonedDateTime[],
+        "job_started_at" => ZonedDateTime[],
+        "job_finished_at" => ZonedDateTime[],
         )
-    push!(builds, resp)
-end
 
-# Parse JSON for timing data
-df = DateFormat("y-m-dTH:M:S.sZ")
-datetimes = DateTime[]
-timings = Float64[]
-urls = []
-Links = []
-for page in builds
-    json_body = JSON.Parser.parse(String(page.body))
-    push!(Links,page.headers[19][2])
-    for row in json_body
-        if haskey(row, "started_at") && haskey(row, "finished_at") && row["state"] != "canceled"
-            if !(isnothing(row["started_at"]) || isnothing(row["finished_at"])) 
-                start_time = DateTime(row["started_at"], df)
-                end_time = DateTime(row["finished_at"], df)
-                push!(urls, row["url"])
-                push!(datetimes, start_time)
-                push!(timings, (end_time - start_time).value/1000/60)
-            end
+    per_page = 100 # max according to API docs
+    max_builds = 5000 
+
+    for page = 1:cld(max_builds, per_page)
+        @info "request" page
+        resp = HTTP.get(
+            buildkite_endpoint,
+            Dict("Authorization" => "Bearer $buildkite_api_token",
+                );
+            query = Dict(
+                "page" => page,
+                "per_page" => per_page,
+                "branch" => "staging",
+                "state" => "passed",
+                "created_from" => "$(now() - Year(1))Z",
+            )
+        )
+
+        json_body = JSON.Parser.parse(String(resp.body))
+        append_buildkite_jobs!(buildkite_jobs_df, json_body)
+        if length(json_body) < per_page
+            break
         end
     end
+    return buildkite_jobs_df
 end
 
-plot(datetimes, timings, seriestype=:scatter, ylabel="Duration (Minutes)", xlabel="Date")
+buildkite_jobs_df = query_buildkite_jobs()
+
+buildkite_jobs_df.job_time = buildkite_jobs_df.job_finished_at .- buildkite_jobs_df.job_started_at
+
+# get memory usage statistics from Slurm
+function query_slurm_jobs(slurm_job_ids)
+
+    function extract_line(line)
+        job_step, ave_rss = split(line,'|', limit=2)
+        job, = split(job_step,'.',limit=2)
+        (
+            slurm_job_id = parse(Int, job), 
+            ave_rss = ave_rss == "" ? Int(0) : parse(Int, ave_rss),
+            )
+    end
+    sacct_jobs_df = DataFrame(
+        :slurm_job_id => Int[],
+        :ave_rss => Int[],
+    )
+
+    # to avoid argument list too long (E2BIG), we split into chunks
+    chunksize = 1000
+    n_job_ids = length(slurm_job_ids)
+    for i = 1:chunksize:n_job_ids
+        chunk_slurm_job_ids = slurm_job_ids[i:min(i+chunksize-1,n_job_ids)]
+        # this is faster than using sacct --json
+        sacct_cmd = `sacct --jobs=$(join(chunk_slurm_job_ids,",")) --parsable2 --noheader --format=JobID,AveRSS --noconvert`
+        sacct_jobsteps_df = DataFrame(extract_line(line) for line in eachline(sacct_cmd))
+        # compute the maximum ave_rss over all steps in each job
+        append!(sacct_jobs_df, combine(groupby(sacct_jobsteps_df, :slurm_job_id), :ave_rss => maximum => :ave_rss))
+    end
+    return sacct_jobs_df
+end
+
+sacct_jobs_df = query_slurm_jobs(buildkite_jobs_df.slurm_job_id)
+
+jobs_df = innerjoin(buildkite_jobs_df, sacct_jobs_df; on=:slurm_job_id)
+sort!(jobs_df, [:step_key, :build_scheduled_at])
+
+hover_desc(job_step_key, job_build_number) = "step: $job_step_key, build: $job_build_number"
+
+
+plotlyjs()
+plt_memory = plot(
+    jobs_df.build_scheduled_at,
+    jobs_df.ave_rss ./ 1024^3, 
+    group=jobs_df.step_key, 
+    xlabel="date",
+    ylabel="memory / task (GB)",
+    legend=false, 
+    hover=hover_desc.(jobs_df.step_key, jobs_df.build_number)
+    )
+
+plt_time = plot(
+    jobs_df.build_scheduled_at, 
+    map(t -> t.value /(60*1000), jobs_df.job_time), 
+    group=jobs_df.step_key, 
+    xlabel="date",
+    ylabel="time",
+    legend=false, 
+    hover=hover_desc.(jobs_df.step_key, jobs_df.build_number)
+)
+
+plt_combined = plot(
+    plt_memory, 
+    plt_time, 
+    layout=(2,1), 
+    size=(800,800))
+
+Plots.html(plt_combined, "build_statistics")
