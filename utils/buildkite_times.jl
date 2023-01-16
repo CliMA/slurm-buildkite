@@ -58,10 +58,11 @@ function query_buildkite_jobs()
         )
 
     per_page = 100 # max according to API docs
-    max_builds = 5000 
+    max_builds = 5000
+    num_builds = 0
 
     for page = 1:cld(max_builds, per_page)
-        @info "request" page
+        @debug "Buildkite API request" page
         resp = HTTP.get(
             buildkite_endpoint,
             Dict("Authorization" => "Bearer $buildkite_api_token",
@@ -76,11 +77,13 @@ function query_buildkite_jobs()
         )
 
         json_body = JSON.Parser.parse(String(resp.body))
+        num_builds += length(json_body)
         append_buildkite_jobs!(buildkite_jobs_df, json_body)
         if length(json_body) < per_page
             break
         end
     end
+    @info "Buildkite API requests" num_builds num_jobs=nrow(buildkite_jobs_df)
     return buildkite_jobs_df
 end
 
@@ -115,6 +118,7 @@ function query_slurm_jobs(slurm_job_ids)
         # compute the maximum ave_rss over all steps in each job
         append!(sacct_jobs_df, combine(groupby(sacct_jobsteps_df, :slurm_job_id), :ave_rss => maximum => :ave_rss))
     end
+    @info "Slurm sacct requests" num_jobs=nrow(sacct_jobs_df)
     return sacct_jobs_df
 end
 
@@ -124,7 +128,6 @@ jobs_df = innerjoin(buildkite_jobs_df, sacct_jobs_df; on=:slurm_job_id)
 sort!(jobs_df, [:step_key, :build_scheduled_at])
 
 hover_desc(job_step_key, job_build_number) = "step: $job_step_key, build: $job_build_number"
-
 
 plotlyjs()
 plt_memory = plot(
