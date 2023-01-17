@@ -15,7 +15,7 @@ steps:
   - label: "Print only rank 0"
     key: "print"
     command:
-      - ": > print-out-0.log && tail -f print-out-0.log &"
+      - ": > print-out-0.log && tail -F print-out-0.log &" # print log in background
       - srun --output=print-out-%t.log printenv PMI_RANK
       - sleep 1
     agents:
