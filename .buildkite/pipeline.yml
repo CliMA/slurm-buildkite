@@ -15,16 +15,15 @@ steps:
   - label: "Print only rank 0"
     key: "print"
     command:
-      - ": > print-out-0 && tail -f print-out-0 &"
-      - srun --output=print-out-%t printenv PMI_RANK
+      - ": > print-out-0.log && tail -f print-out-0.log &"
+      - srun --output=print-out-%t.log printenv PMI_RANK
       - sleep 1
-      - kill %1
     agents:
       slurm_ntasks_per_node: 2
       slurm_nodes: 2
       slurm_time: 00:05:00
     artifact_paths:
-      - "print-out-*"
+      - "print-out-*.log"
 
   - label: "HDF5 memory profile"
     key: "hdf5-mem-profile"
