@@ -67,5 +67,6 @@ steps:
   - label: "Build history"
     command:
       - bin/build_history master
+      - bin/slack-message -c "#slurm-buildkite-testing" -x "hello from $$BUILDKITE_BUILD_URL"
     artifact_paths:
       - "build_history.html"
