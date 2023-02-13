@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# Slack API: https://api.slack.com/methods/
+
+set -euf -o pipefail
+
+echo='echo -e'
+
+Usage() {
+  ${echo}
+  ${echo} "\tusage:\n\t\t$0 [OPTIONS]"
+  ${echo}
+  ${echo} "Required:"
+  ${echo} " -c CHANNEL\tSlack channel to post to"
+  ${echo} " -s SLACK_TOKEN\tAPI auth token"
+  ${echo} " -x MESSAGE\tMarkdown formatted message to post"
+  ${echo}
+  ${echo} "Optional:"
+  ${echo} " -u API_URL\tSlack API endpoint to use (default: ${API_URL})"
+  ${echo} " -h     \tPrint help"
+  ${echo} " -v     \tVerbose mode"
+  ${echo}
+  exit ${1:-$USAGE}
+}
+
+# Exit Vars
+
+: ${HELP:=0}
+: ${USAGE:=1}
+
+# Default Vars
+API_URL='https://slack.com/api/chat.postMessage'
+CURL_OPTS='--silent'
+
+# main
+
+while getopts :c:s:x:hv: OPT; do
+  case ${OPT} in
+    c)
+      echo "$OPTARG"
+      CHANNEL="$OPTARG"
+      ;;
+    s)
+      SLACK_TOKEN="$OPTARG"
+      ;;
+    x)
+      MESSAGE_TEXT="${OPTARG}"
+      ;;
+    h)
+      Usage ${HELP}
+      ;;
+    v)
+      CURL_OPTS="${CURL_OPTS} -v"
+      ;;
+    \?)
+      echo "Invalid option: -$OPTARG" >&2
+      Usage ${USAGE}
+      ;;
+  esac
+done
+
+if [[ ( "${CHANNEL}" != "#"* ) && ( "${CHANNEL}" != "@"* ) ]]; then
+  CHANNEL="#${CHANNEL}"
+fi
+
+#JSON=$(jq -n \
+#     --arg slack_channel "${CHANNEL}" \
+#     --arg slack_text "${MESSAGE_TEXT}" \
+#    '{"channel": $slack_channel, "text": $slack_text}')
+
+JSON="{\"channel\": \"${CHANNEL}\", \"text\": \"${MESSAGE_TEXT}\"}"
+
+curl $CURL_OPTS \
+  -X POST \
+  -H "Authorization: Bearer ${SLACK_TOKEN}" \
+  -H "Content-type: application/json; charset=utf-8" \
+  --data "${JSON}" \
+  ${API_URL}
+
+exit 0
