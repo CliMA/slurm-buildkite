@@ -152,10 +152,4 @@ if [ "$BUILDKITE_PIPELINE_NAME" == "ClimateMachine-Docs" ]; then
     export DOCUMENTER_KEY=$(cat "$BUILDKITE_PATH/.climatemachine_documenter_key")
 fi
 
-if [ "$BUILDKITE_PIPELINE_NAME" == "ClimateMachineQA" ]; then
-    export SLACK_TOKEN=$(cat "$BUILDKITE_PATH/.slack_token")
-fi
-
-if [ "$BUILDKITE_PIPELINE_NAME" == "ClimateMachineQA-Microphysics" ]; then
-    export SLACK_TOKEN=$(cat "$BUILDKITE_PATH/.slack_token")
-fi
+export SLACK_TOKEN=$(cat "$BUILDKITE_PATH/.slack_token")
