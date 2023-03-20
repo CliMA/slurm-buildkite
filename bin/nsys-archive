@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+set -euf -o pipefail
+
+echo='echo -e'
+
+dir="${1:-.}"
+outfile="${2:-${dir}/nsys.tar.gz}"
+
+find "${dir}" -iname '*.nsys-*' \
+| sort -V \
+| tar cvzf "$outfile" -T -

@@ -53,9 +53,12 @@ steps:
   - label: "Nsight - multi node profile"
     key: "nsys-multi"
     command:
-      - srun --cpu-bind=cores nsys profile --output=report-multi-%q{PMI_RANK} --trace=mpi --mpi-impl=openmpi julia --project=.ci .ci/mpi.jl
+      - mkdir -p nsys-multi
+      - srun --cpu-bind=cores nsys profile --output=nsys-multi/report-%q{PMI_RANK} --trace=mpi --mpi-impl=openmpi julia --project=.ci .ci/mpi.jl
+      - bin/nsys-mkview nsys-multi
+      - bin/nsys-archive nsys-multi
     artifact_paths:
-      - "report-multi-*.nsys-rep"
+      - nsys-multi/nsys.tar.gz
     agents:
       slurm_cpus_per_task: 2
       slurm_ntasks_per_node: 2
