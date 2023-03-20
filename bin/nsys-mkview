@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+set -euf -o pipefail
+
+echo='echo -e'
+
+dir="${1:-.}"
+outfile="${2:-${dir}/all.nsys-view}"
+
+find "${dir}" -iname '*.nsys-rep' -printf '%f\n' \
+| sort -V \
+| jq --raw-input --slurp 'split("\n") | .[0:-1] | {files: .} + {"extension": "nsys-view", "version": "1.0"}' \
+> "$outfile"
