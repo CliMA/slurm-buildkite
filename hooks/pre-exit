@@ -7,4 +7,4 @@
 
 set -euo pipefail # exit on failure or unset variable
 
-rm -rf "$TMPDIR"
+rm -rf "/tmp/slurm_${SLURM_JOB_ID}"
