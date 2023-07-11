@@ -16,7 +16,7 @@ DEBUG = False
 # setup root logger
 logger = logging.Logger('poll')
 handler = logging.StreamHandler()
-handler.setLevel(logging.INFO)
+handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
@@ -38,7 +38,7 @@ def all_started_builds():
     since = hours_ago_utc(nhours=48)
     npage, builds = 1, []
     while True:
-        resp = requests.get(
+        req = requests.get(
             BUILDS_ENDPOINT,
             params = {
                 'page' : npage,
@@ -49,7 +49,9 @@ def all_started_builds():
             headers = {
                 'Authorization': 'Bearer ' + BUILDKITE_API_TOKEN
             }
-        ).json()
+        )
+        
+        resp = req.json()
         if not len(resp):
             break
         builds.extend(resp)
