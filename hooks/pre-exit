@@ -7,4 +7,5 @@
 
 set -euo pipefail # exit on failure or unset variable
 
-rm -rf "/tmp/slurm_${SLURM_JOB_ID}"
+df -h /tmp/
+srun --ntasks-per-node=1 --ntasks=${SLURM_JOB_NUM_NODES} rm -rf "/tmp/slurm_${SLURM_JOB_ID}"

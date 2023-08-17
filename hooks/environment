@@ -16,8 +16,9 @@ export CI_BUILD_DIR="${BUILDKITE_BUILD_PATH}/${BUILDKITE_PIPELINE_SLUG}/${BUILDK
 export BUILDKITE_BUILD_CHECKOUT_PATH="${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
 export BUILDKITE_API_TOKEN=$(cat "${SLURM_BUILDKITE_PATH}/.buildkite_token")
 
-export TMPDIR="${CI_BUILD_DIR}/tmp"
-mkdir -p "${TMPDIR}"
+export TMPDIR="/tmp/slurm-${SLURM_JOB_ID}"
+srun --ntasks-per-node=1 --ntasks=${SLURM_JOB_NUM_NODES} mkdir -p "${TMPDIR}"
+printenv TMPDIR
 
 # Slurm Job Info
 echo "--- Slurm Job ID: ${SLURM_JOB_ID}"
