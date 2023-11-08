@@ -235,6 +235,7 @@ try:
             
             slurmjob_id = 0
             if not DEBUG:
+                logger.info("new slurm jobid={0}: `{1}`".format(slurmjob_id, " ".join(cmd)))
                 ret = subprocess.run(cmd, 
                                      stdout=subprocess.PIPE,
                                      stderr=subprocess.PIPE,
@@ -245,7 +246,6 @@ try:
                         .format(ret.returncode, " ".join(cmd), ret.stderr))
                     continue
                 slurmjob_id = int(ret.stdout)
-            logger.info("new slurm jobid={0}: `{1}`".format(slurmjob_id, " ".join(cmd)))
 
     # Run canceled job builds at the end
     canceled_builds = all_canceled_builds()
