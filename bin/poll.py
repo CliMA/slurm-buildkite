@@ -195,6 +195,7 @@ try:
             agent_query_rules = job.get('agent_query_rules', [])
             agent_config = 'default'
             agent_queue  = 'default'
+            agent_partition = 'any'
             agent_modules = ""
             use_exclude = True
 
@@ -208,6 +209,10 @@ try:
 
                 if key == 'config':
                     agent_config = val
+                    continue
+
+                if key == 'partition':
+                    agent_partition = val
                     continue
 
                 if key == "modules":
@@ -230,9 +235,11 @@ try:
             # exclude node hosts that may be problematic (comma sep string)
             if use_exclude and BUILDKITE_EXCLUDE_NODES:
                 cmd.append("--exclude=" + BUILDKITE_EXCLUDE_NODES)
-            
+
             if not agent_queue in (BUILDKITE_QUEUE, 'default'):
                 continue
+
+            cmd.append("--partition={}".format(agent_partition))
 
             cmd.append(joinpath(BUILDKITE_PATH, 'bin/slurmjob.sh'))
             cmd.append(agent_config)
