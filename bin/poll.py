@@ -190,15 +190,14 @@ try:
                 '--output=' + joinpath(slurmlog_prefix, 'slurm-%j.log')
             ]
             
-            # exclude node hosts that may be problematic (comma sep string)
-            if BUILDKITE_EXCLUDE_NODES:
-                cmd.append("--exclude=" + BUILDKITE_EXCLUDE_NODES)
   
             # parse agent query rule tags
             agent_query_rules = job.get('agent_query_rules', [])
             agent_config = 'default'
             agent_queue  = 'default'
             agent_modules = ""
+            use_exclude = True
+
             for tag in agent_query_rules:
                 # e.g. tag = 'slurm_ntasks=3'
                 key, val = tag.split('=', 1)
@@ -218,11 +217,19 @@ try:
                 # passthrough all agent slurm prefixed query rules to the slurm job
                 if key.startswith('slurm_'):
                     slurm_arg = key.split('slurm_', 1)[1].replace('_', '-')
+
+                    if slurm_arg == "exclude":
+                        use_exclude = False
+
                     if val:
                         cmd.append('--{0}={1}'.format(slurm_arg, val))
                     else:
                         # flag with no value
                         cmd.append('--{0}'.format(slurm_arg))
+
+            # exclude node hosts that may be problematic (comma sep string)
+            if use_exclude and BUILDKITE_EXCLUDE_NODES:
+                cmd.append("--exclude=" + BUILDKITE_EXCLUDE_NODES)
             
             if not agent_queue in (BUILDKITE_QUEUE, 'default'):
                 continue

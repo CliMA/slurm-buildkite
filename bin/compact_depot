@@ -1,0 +1,15 @@
+#!/bin/bash
+
+CURRENT_DEPOT=${JULIA_DEPOT_PATH%%:*}
+
+# artifacts
+mkdir -p "${SHARED_DEPOT}/artifacts"
+mkdir -p "${CURRENT_DEPOT}/artifacts"
+mv -n -v ${CURRENT_DEPOT}/artifacts/* "${SHARED_DEPOT}/artifacts"
+
+# packages
+mkdir -p "${SHARED_DEPOT}/packages"
+mkdir -p "${CURRENT_DEPOT}/packages"
+# first try moving all package directories
+mv -n -v ${CURRENT_DEPOT}/packages/* "${SHARED_DEPOT}/packages"
+# now try to move any remaining subdirectories

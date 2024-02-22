@@ -1,7 +1,7 @@
 #!/bin/bash
 #=
 module purge
-module load julia/1.8.5
+module load julia/1.9.3
 exec julia --color=yes --startup-file=no "$0" "$@"
 =#
 LOAD_PATH[1] = joinpath(@__DIR__, "..",)
