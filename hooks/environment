@@ -31,9 +31,16 @@ echo "--- Slurm Job ID: ${SLURM_JOB_ID}"
 scontrol show job ${SLURM_JOB_ID} --details
 scontrol show node ${SLURM_JOB_NODELIST}
 
+if $(grep -q "Red Hat" /etc/redhat-release);  then
+    # We are on rhel9 nodes, we also want our modules
+    export MODULEPATH="/groups/esm/modules:$MODULEPATH"
 
-module purge
-module load git/2.26.0
+    module load git/2.39.3-gcc-11.3.1-zfr3sti
+else
+    # We are on the CentOS nodes
+    module load git/2.26.0
+fi
+
 
 # this is set to avoid rare race conditions on the same node with concurrent (step) jobs
 export OMPI_MCA_orte_tmpdir_base="$TMPDIR"
