@@ -158,7 +158,11 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         ;;
 esac
 
-printf -- '--- ' && module list
+# From https://stackoverflow.com/a/51141872, to remove colors from modules
+# (Color tags mess up the builkite log)
+module_list=$(module list | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g')
+
+printf -- '--- ' && echo $module_list
 
 if [ -n "${SLURM_GPUS_ON_NODE:-}" ]; then
     echo "--- GPUs available on ${HOSTNAME}"
