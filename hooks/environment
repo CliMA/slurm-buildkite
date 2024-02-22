@@ -9,10 +9,14 @@
 # export SECRET_VAR=token
 
 set -euo pipefail # exit on failure or unset variable
+#set -x  # show all the commands that are being executed
+
+source /etc/profile.d/modules.sh
 
 export SLURM_BUILDKITE_PATH="$(dirname "${BUILDKITE_BIN_PATH}")"
-export GIT_SSH_COMMAND="ssh -i ${SLURM_BUILDKITE_PATH}/.ssh/id_rsa -o IdentitiesOnly=yes"
-export CI_BUILD_DIR="${BUILDKITE_BUILD_PATH}/${BUILDKITE_PIPELINE_SLUG}/${BUILDKITE_BUILD_NUMBER}" 
+export SHARED_DEPOT="${BUILDKITE_BUILD_PATH}/shared_depot"
+export GIT_SSH_COMMAND="ssh -i ${SLURM_BUILDKITE_PATH}/.ssh/id_rsa -o IdentitiesOnly=yes -o UserKnownHostsFile=${SLURM_BUILDKITE_PATH}/.ssh/known_hosts"
+export CI_BUILD_DIR="${BUILDKITE_BUILD_PATH}/${BUILDKITE_PIPELINE_SLUG}/${BUILDKITE_BUILD_NUMBER}"
 export BUILDKITE_BUILD_CHECKOUT_PATH="${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
 export BUILDKITE_API_TOKEN=$(cat "${SLURM_BUILDKITE_PATH}/.buildkite_token")
 
@@ -20,22 +24,25 @@ export TMPDIR="/tmp/slurm-${SLURM_JOB_ID}"
 srun --ntasks-per-node=1 --ntasks=${SLURM_JOB_NUM_NODES} mkdir -p "${TMPDIR}"
 printenv TMPDIR
 
+ulimit -c unlimited
+
 # Slurm Job Info
 echo "--- Slurm Job ID: ${SLURM_JOB_ID}"
-scontrol show job ${SLURM_JOB_ID}
+scontrol show job ${SLURM_JOB_ID} --details
+scontrol show node ${SLURM_JOB_NODELIST}
+
 
 module purge
 module load git/2.26.0
 
 # this is set to avoid rare race conditions on the same node with concurrent (step) jobs
-export OMPI_MCA_orte_tmpdir_base="/tmp/slurm-buildkite/${BUILDKITE_STEP_KEY}"
-
+export OMPI_MCA_orte_tmpdir_base="$TMPDIR"
 
 case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     # standard configurations
    ""|default)
         module load ${BUILDKITE_AGENT_META_DATA_MODULES:-}
-        export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$CI_BUILD_DIR/depot/default}"
+        export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$CI_BUILD_DIR/depot/default}:${SHARED_DEPOT}"
         ;;
 
     init)
