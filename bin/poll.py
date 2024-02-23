@@ -35,6 +35,7 @@ def day_ago_utc():
 
 # What SLURM partition to use by default depending on the queue
 DEFAULT_PARTITIONS = {"default": "default", "central": "any", "new-central": "expansion"}
+DEFAULT_GPU_PARTITIONS = {"default": "default", "central": "any", "new-central": "gpu"}
 
 def all_started_builds():
     since = hours_ago_utc(nhours=48)
@@ -82,6 +83,12 @@ def all_canceled_builds():
         builds.extend(resp)
         npage += 1
     return builds
+
+# Try to guess if this given argument implies that a GPU was requested
+def gpu_is_requested(slurm_arg, val):
+    # Just find the word "gpu" in the tag or in its value. It might be a very
+    # wide filter...
+    return "gpu" in slurm_arg or "gpu" in val
 
 try:
     # optional env overloads
@@ -200,7 +207,7 @@ try:
             agent_partition = DEFAULT_PARTITIONS[agent_queue]
             agent_modules = ""
             use_exclude = True
-            partition_changed = False
+            partition_has_changed = False
 
             for tag in agent_query_rules:
                 # e.g. tag = 'slurm_ntasks=3'
@@ -211,7 +218,7 @@ try:
                     # We read the queue, we need to update the default
                     # partition, unless the partition was already read (the
                     # user-provided agent tag has to take the precedence)
-                    if not partition_changed:
+                    if not partition_has_changed:
                         agent_partition = DEFAULT_PARTITIONS[agent_queue]
                     continue
 
@@ -224,7 +231,7 @@ try:
                     # We flag that we changed the partition, so if we read the
                     # queue argument, we know we don't have to reset the
                     # partition
-                    partition_changed = True
+                    partition_has_changed = True
                     continue
 
                 if key == "modules":
@@ -234,6 +241,12 @@ try:
                 # passthrough all agent slurm prefixed query rules to the slurm job
                 if key.startswith('slurm_'):
                     slurm_arg = key.split('slurm_', 1)[1].replace('_', '-')
+
+                    # If we are requesting a GPU and we haven't specified a
+                    # partition, let's switch the partition to the default GPU
+                    # partition
+                    if gpu_is_requested(slurm_arg, val) and not partition_has_changed:
+                        agent_partition = DEFAULT_GPU_PARTITIONS[agent_queue]
 
                     if slurm_arg == "exclude":
                         use_exclude = False
