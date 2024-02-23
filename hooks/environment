@@ -32,6 +32,8 @@ scontrol show job ${SLURM_JOB_ID} --details
 scontrol show node ${SLURM_JOB_NODELIST}
 
 if $(grep -q "Red Hat" /etc/redhat-release);  then
+    echo "We are on a RedHat 9 node"
+
     # We are on rhel9 nodes, we also want our modules
     export MODULEPATH="/groups/esm/modules:$MODULEPATH"
 
