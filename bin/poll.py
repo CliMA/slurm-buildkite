@@ -33,6 +33,8 @@ def hours_ago_utc(nhours):
 def day_ago_utc():
     return (datetime.utcnow() - timedelta(days=1)).replace(microsecond=0).isoformat() + 'Z'
 
+# What SLURM partition to use by default depending on the queue
+DEFAULT_PARTITIONS = {"default": "default", "central": "any", "new-central": "expansion"}
 
 def all_started_builds():
     since = hours_ago_utc(nhours=48)
@@ -195,9 +197,10 @@ try:
             agent_query_rules = job.get('agent_query_rules', [])
             agent_config = 'default'
             agent_queue  = 'default'
-            agent_partition = 'any'
+            agent_partition = DEFAULT_PARTITIONS[agent_queue]
             agent_modules = ""
             use_exclude = True
+            partition_changed = False
 
             for tag in agent_query_rules:
                 # e.g. tag = 'slurm_ntasks=3'
@@ -205,6 +208,11 @@ try:
 
                 if key == 'queue':
                     agent_queue = val
+                    # We read the queue, we need to update the default
+                    # partition, unless the partition was already read (the
+                    # user-provided agent tag has to take the precedence)
+                    if not partition_changed:
+                        agent_partition = DEFAULT_PARTITIONS[agent_queue]
                     continue
 
                 if key == 'config':
@@ -213,6 +221,10 @@ try:
 
                 if key == 'partition':
                     agent_partition = val
+                    # We flag that we changed the partition, so if we read the
+                    # queue argument, we know we don't have to reset the
+                    # partition
+                    partition_changed = True
                     continue
 
                 if key == "modules":
