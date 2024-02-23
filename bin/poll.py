@@ -50,7 +50,7 @@ def all_started_builds():
                 'Authorization': 'Bearer ' + BUILDKITE_API_TOKEN
             }
         )
-        
+
         resp = req.json()
         if not len(resp):
             break
@@ -92,7 +92,7 @@ try:
         'BUILDKITE_API_TOKEN',
         open(joinpath(BUILDKITE_PATH,'.buildkite_token'), 'r').read().rstrip()
     )
-    
+
     BUILDKITE_QUEUE = os.environ.get(
         'BUILDKITE_QUEUE',
         'central'
@@ -189,8 +189,8 @@ try:
                 '--comment=' + jobid,
                 '--output=' + joinpath(slurmlog_prefix, 'slurm-%j.log')
             ]
-            
-  
+
+
             # parse agent query rule tags
             agent_query_rules = job.get('agent_query_rules', [])
             agent_config = 'default'
@@ -246,11 +246,11 @@ try:
             cmd.append(jobid)
             if agent_modules:
                 cmd.append(agent_modules)
-            
+
             slurmjob_id = 0
             if not DEBUG:
                 logger.info("new slurm jobid={0}: `{1}`".format(slurmjob_id, " ".join(cmd)))
-                ret = subprocess.run(cmd, 
+                ret = subprocess.run(cmd,
                                      stdout=subprocess.PIPE,
                                      stderr=subprocess.PIPE,
                                      universal_newlines=True)
@@ -279,7 +279,7 @@ try:
 
         logger.info("new slurm job: `{0}`".format(" ".join(cmd)))
         if not DEBUG:
-            ret = subprocess.run(cmd, 
+            ret = subprocess.run(cmd,
                                  stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE,
                                  universal_newlines=True)
