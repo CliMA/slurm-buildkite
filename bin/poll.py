@@ -11,7 +11,9 @@ from os.path import join as joinpath
 # debug flag, set this to true to get log output
 # of state change transitions but do not actually
 # submit the slurm commands on the cluster
-DEBUG = False
+
+# If DEBUG_SLURM_BUILDKITE is set, we are in the Debug mode
+DEBUG = "DEBUG_SLURM_BUILDKITE" in os.environ
 
 # setup root logger
 logger = logging.Logger('poll')
@@ -20,6 +22,8 @@ handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
+if DEBUG:
+    logger.info("Debug mode!")
 
 BUILDS_ENDPOINT = 'https://api.buildkite.com/v2/organizations/clima/builds'
 
@@ -274,7 +278,7 @@ try:
 
             slurmjob_id = 0
             if not DEBUG:
-                logger.info("new slurm jobid={0}: `{1}`".format(slurmjob_id, " ".join(cmd)))
+                logger.info("new slurm jobid={0}: `{1}` (queue: {2}, hostname: {3})".format(slurmjob_id, " ".join(cmd), agent_queue, os.uname()[1]))
                 ret = subprocess.run(cmd,
                                      stdout=subprocess.PIPE,
                                      stderr=subprocess.PIPE,
