@@ -219,7 +219,7 @@ try:
                     # partition, unless the partition was already read (the
                     # user-provided agent tag has to take the precedence)
                     if not partition_has_changed:
-                        agent_partition = DEFAULT_PARTITIONS[agent_queue]
+                        agent_partition = DEFAULT_PARTITIONS.get(agent_queue, None)
                     continue
 
                 if key == 'config':
@@ -246,7 +246,7 @@ try:
                     # partition, let's switch the partition to the default GPU
                     # partition
                     if gpu_is_requested(slurm_arg, val) and not partition_has_changed:
-                        agent_partition = DEFAULT_GPU_PARTITIONS[agent_queue]
+                        agent_partition = DEFAULT_GPU_PARTITIONS.get(agent_queue, None)
 
                     if slurm_arg == "exclude":
                         use_exclude = False
