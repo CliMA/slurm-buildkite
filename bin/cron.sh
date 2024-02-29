@@ -6,7 +6,7 @@ if [[ "$HOSTNAME" != "login1.cm.cluster" ]]; then
 fi
 
 export BUILDKITE_PATH="/groups/esm/slurm-buildkite"
-export BUILDKITE_QUEUE='central'
+export BUILDKITE_QUEUE='new-central'
 
 cd $BUILDKITE_PATH
 
