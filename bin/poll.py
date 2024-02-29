@@ -95,7 +95,7 @@ try:
     
     BUILDKITE_QUEUE = os.environ.get(
         'BUILDKITE_QUEUE',
-        'central'
+        'new-central'
     )
 
     BUILDKITE_EXCLUDE_NODES = os.environ.get(
