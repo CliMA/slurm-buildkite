@@ -1,7 +1,5 @@
 #!/bin/bash
 #=
-module purge
-module load julia/1.9.3
 exec julia --color=yes --startup-file=no "$0" "$@"
 =#
 LOAD_PATH[1] = joinpath(@__DIR__, "..",)
@@ -17,7 +15,7 @@ build_number = ENV["BUILDKITE_BUILD_NUMBER"]
 
 function append_buildkite_jobs!(buildkite_jobs_df, json_body)
     for build in json_body
-        build_number = build["number"]    
+        build_number = build["number"]
         build_scheduled_at = ZonedDateTime(build["scheduled_at"])
         for job in build["jobs"]
             if job["type"] != "script"
@@ -29,7 +27,7 @@ function append_buildkite_jobs!(buildkite_jobs_df, json_body)
             end
             step_key = job["step_key"]
             job_started_at = ZonedDateTime(job["started_at"])
-            job_finished_at = ZonedDateTime(job["finished_at"])            
+            job_finished_at = ZonedDateTime(job["finished_at"])
             if isnothing(step_key)
                 continue
             end
@@ -58,9 +56,9 @@ end
 
 function query_buildkite_jobs()
     buildkite_jobs_df = DataFrame(
-        "build_number" => Int[], 
-        "step_key" => String[], 
-        "slurm_job_id" => Int[], 
+        "build_number" => Int[],
+        "step_key" => String[],
+        "slurm_job_id" => Int[],
         "state" => String[],
         "build_scheduled_at" => ZonedDateTime[],
         "job_started_at" => ZonedDateTime[],
@@ -92,7 +90,7 @@ function query_buildkite_jobs()
             break
         end
     end
-    
+
     # add the current job as well
     resp = HTTP.get(
         "$buildkite_builds_endpoint/$build_number",
@@ -117,7 +115,7 @@ function query_slurm_jobs(slurm_job_ids)
         job_step, ave_rss = split(line,'|', limit=2)
         job, = split(job_step,'.',limit=2)
         (
-            slurm_job_id = parse(Int, job), 
+            slurm_job_id = parse(Int, job),
             ave_rss = ave_rss == "" ? Int(0) : parse(Int, ave_rss),
             )
     end
@@ -151,30 +149,30 @@ hover_desc(job_step_key, job_build_number) = "step: $job_step_key, build: $job_b
 plotlyjs()
 plt_memory = plot(
     jobs_df.build_scheduled_at,
-    jobs_df.ave_rss ./ 1024^3, 
-    group=jobs_df.step_key, 
+    jobs_df.ave_rss ./ 1024^3,
+    group=jobs_df.step_key,
     title="Job memory usage",
     xlabel="date",
     ylabel="memory / task (GB)",
-    legend=false, 
+    legend=false,
     hover=hover_desc.(jobs_df.step_key, jobs_df.build_number)
     )
 
 plt_time = plot(
-    jobs_df.build_scheduled_at, 
-    map(t -> t.value /(60*1000), jobs_df.job_time), 
-    group=jobs_df.step_key, 
+    jobs_df.build_scheduled_at,
+    map(t -> t.value /(60*1000), jobs_df.job_time),
+    group=jobs_df.step_key,
     title="Job time elapsed",
     xlabel="date",
     ylabel="time",
-    legend=false, 
+    legend=false,
     hover=hover_desc.(jobs_df.step_key, jobs_df.build_number)
 )
 
 plt_combined = plot(
-    plt_memory, 
-    plt_time, 
-    layout=(2,1), 
+    plt_memory,
+    plt_time,
+    layout=(2,1),
     size=(800,800))
 
 Plots.html(plt_combined, "build_history")
