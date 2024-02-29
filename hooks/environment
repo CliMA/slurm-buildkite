@@ -31,9 +31,18 @@ echo "--- Slurm Job ID: ${SLURM_JOB_ID}"
 scontrol show job ${SLURM_JOB_ID} --details
 scontrol show node ${SLURM_JOB_NODELIST}
 
+if $(grep -q "Red Hat" /etc/redhat-release);  then
+    echo "We are on a RedHat 9 node"
 
-module purge
-module load git/2.26.0
+    # We are on rhel9 nodes, we also want our modules
+    export MODULEPATH="/groups/esm/modules:$MODULEPATH"
+
+    module load git/2.39.3-gcc-11.3.1-zfr3sti
+else
+    # We are on the CentOS nodes
+    module load git/2.26.0
+fi
+
 
 # this is set to avoid rare race conditions on the same node with concurrent (step) jobs
 export OMPI_MCA_orte_tmpdir_base="$TMPDIR"
@@ -151,7 +160,11 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         ;;
 esac
 
-printf -- '--- ' && module list
+# From https://stackoverflow.com/a/51141872, to remove colors from modules
+# (Color tags mess up the builkite log)
+module_list=$(module list | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g')
+
+printf -- '--- ' && echo $module_list
 
 if [ -n "${SLURM_GPUS_ON_NODE:-}" ]; then
     echo "--- GPUs available on ${HOSTNAME}"
