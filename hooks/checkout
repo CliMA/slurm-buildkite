@@ -7,50 +7,41 @@
 set -euo pipefail # exit on failure or unset variable
 set -v
 
-case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
-    init|default)
-        echo "--- Init working build directory"
-        mkdir -p ${CI_BUILD_DIR} && cd ${CI_BUILD_DIR}
+echo "--- Init working build directory"
+mkdir -p ${CI_BUILD_DIR} && cd ${CI_BUILD_DIR}
 
-        if [ ! -d "${BUILDKITE_BUILD_CHECKOUT_PATH}/.git" ]; then
-            echo "--- Init clone and checkout" 
-            COUNT=1
-            while true; do
-                git clone ${BUILDKITE_GIT_CLONE_FLAGS} ${BUILDKITE_REPO} "${BUILDKITE_BUILD_CHECKOUT_PATH}"
-                if [ $? -eq 0 ]; then
-                    break
-                fi
-                if [[ $COUNT -ge 3 ]]; then
-                    echo "Clone ${BUILDKITE_REPO} failed after 3 attempts"
-                    exit 1
-                else
-                    echo "Clone ${BUILDKITE_REPO} failed, retrying..."
-                    sleep 30s
-                fi 
-                let COUNT=COUNT+1
-            done 
-            cd "${BUILDKITE_BUILD_CHECKOUT_PATH}"
-            if [ "$BUILDKITE_COMMIT" = "HEAD" ]; then
-                git checkout -f "${BUILDKITE_BRANCH}"
-            else
-                git checkout -f "${BUILDKITE_COMMIT}"
-            fi
-            # emulate https://github.com/buildkite/agent/blob/7e0166eebed5bf3cc289edae97145803429e75f9/bootstrap/bootstrap.go#L1448-L1458
-            if ! buildkite-agent meta-data exists "buildkite:git:commit" ; then
-                echo "Sending Git commit information to Buildkite"
-                git --no-pager show HEAD -s --format=fuller --no-color -- | buildkite-agent meta-data set "buildkite:git:commit"
-            fi
-                
+if [ ! -d "${BUILDKITE_BUILD_CHECKOUT_PATH}/.git" ]; then
+    echo "--- Init clone and checkout"
+    COUNT=1
+    while true; do
+        git clone ${BUILDKITE_GIT_CLONE_FLAGS} ${BUILDKITE_REPO} "${BUILDKITE_BUILD_CHECKOUT_PATH}"
+        if [ $? -eq 0 ]; then
+            break
+        fi
+        if [[ $COUNT -ge 3 ]]; then
+            echo "Clone ${BUILDKITE_REPO} failed after 3 attempts"
+            exit 1
         else
-            echo "--- Using cached git repo ${BUILDKITE_BUILD_CHECKOUT_PATH}"
-            cd "${BUILDKITE_BUILD_CHECKOUT_PATH}"
-        fi 
-        ;;
+            echo "Clone ${BUILDKITE_REPO} failed, retrying..."
+            sleep 30s
+        fi
+        let COUNT=COUNT+1
+    done
+    cd "${BUILDKITE_BUILD_CHECKOUT_PATH}"
+    if [ "$BUILDKITE_COMMIT" = "HEAD" ]; then
+        git checkout -f "${BUILDKITE_BRANCH}"
+    else
+        git checkout -f "${BUILDKITE_COMMIT}"
+    fi
+    # emulate https://github.com/buildkite/agent/blob/7e0166eebed5bf3cc289edae97145803429e75f9/bootstrap/bootstrap.go#L1448-L1458
+    if ! buildkite-agent meta-data exists "buildkite:git:commit" ; then
+        echo "Sending Git commit information to Buildkite"
+        git --no-pager show HEAD -s --format=fuller --no-color -- | buildkite-agent meta-data set "buildkite:git:commit"
+    fi
 
-    *)
-        echo "--- Using cached git repo ${BUILDKITE_BUILD_CHECKOUT_PATH}"
-        cd "${BUILDKITE_BUILD_CHECKOUT_PATH}"
-        ;;
-esac
+else
+    echo "--- Using cached git repo ${BUILDKITE_BUILD_CHECKOUT_PATH}"
+    cd "${BUILDKITE_BUILD_CHECKOUT_PATH}"
+fi
 
 set +v
