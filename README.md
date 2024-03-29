@@ -22,10 +22,8 @@ Any options in the agent metadata block which are prefixed with `slurm_` are pas
 
 ```
 agents:
-  config: cpu
-  queue: central
+  queue: new-central
   slurm_nodes: 1
   slurm_tasks_per_node: 2
-  slurm_exclusive:
 ```
-would pass the options `--nodes=1 --tasks-per-node=2 --exclusive`.
+would pass the options `--nodes=1 --tasks-per-node=2`.
