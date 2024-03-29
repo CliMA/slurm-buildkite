@@ -1,6 +1,6 @@
 agents:
-  queue: central
-  modules: julia/1.10.0 openmpi/4.1.4 nsight-systems/2023.3.1
+  queue: new-central
+  modules: climacommon/2024_03_18
 
 steps:
 

@@ -4,7 +4,7 @@
 #SBATCH --reservation=clima
 
 BUILDKITE_PATH=${BUILDKITE_PATH:=/groups/esm/slurm-buildkite}
-BUILDKITE_QUEUE=${BUILDKITE_QUEUE:=central}
+BUILDKITE_QUEUE=${BUILDKITE_QUEUE:=new-central}
 PATH="${BUILDKITE_PATH}/bin:$PATH"
 
 TAGS="jobid=${SLURM_JOB_ID},queue=${BUILDKITE_QUEUE},config=$1,ntasks=${SLURM_NTASKS}"
@@ -14,7 +14,7 @@ fi
 
 
 ${BUILDKITE_PATH}/bin/buildkite-agent start \
-  --name "central-$1-%n" \
+  --name "$BUILDKITE_QUEUE-$1-%n" \
   --config "${BUILDKITE_PATH}/buildkite-agent.cfg" \
   --acquire-job "$2" \
   --tags "$TAGS"
