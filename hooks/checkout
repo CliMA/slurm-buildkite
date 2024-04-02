@@ -13,7 +13,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
         mkdir -p ${CI_BUILD_DIR} && cd ${CI_BUILD_DIR}
 
         if [ ! -d "${BUILDKITE_BUILD_CHECKOUT_PATH}/.git" ]; then
-            echo "--- Init clone and checkout" 
+            echo "--- Init clone and checkout"
             COUNT=1
             while true; do
                 git clone ${BUILDKITE_GIT_CLONE_FLAGS} ${BUILDKITE_REPO} "${BUILDKITE_BUILD_CHECKOUT_PATH}"
@@ -26,9 +26,9 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
                 else
                     echo "Clone ${BUILDKITE_REPO} failed, retrying..."
                     sleep 30s
-                fi 
+                fi
                 let COUNT=COUNT+1
-            done 
+            done
             cd "${BUILDKITE_BUILD_CHECKOUT_PATH}"
             if [ "$BUILDKITE_COMMIT" = "HEAD" ]; then
                 git checkout -f "${BUILDKITE_BRANCH}"
@@ -40,11 +40,11 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
                 echo "Sending Git commit information to Buildkite"
                 git --no-pager show HEAD -s --format=fuller --no-color -- | buildkite-agent meta-data set "buildkite:git:commit"
             fi
-                
+
         else
             echo "--- Using cached git repo ${BUILDKITE_BUILD_CHECKOUT_PATH}"
             cd "${BUILDKITE_BUILD_CHECKOUT_PATH}"
-        fi 
+        fi
         ;;
 
     *)

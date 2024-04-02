@@ -6,7 +6,7 @@ Run [Buildkite pipelines](https://buildkite.com/) on a [Slurm cluster](https://s
 
 The basic idea is that each Buildkite job is run inside a Slurm job: the Slurm job runs the Buildkite agent with the [`--acquire-job`](https://buildkite.com/docs/agent/v3/cli-start#acquire-job) option, which ensures that only the specific Buildkite job is scheduled, and is terminated and exits once complete.
 
-Our Slurm cluster is not web-accessible, so we are unable to use webhooks to schedule the Slurm jobs. Instead poll the Buildkite API (via [`bin/poll.py`](https://github.com/CliMA/slurm-buildkite/blob/master/bin/poll.py)) via a cron job running on the cluser login node ([`bin/cron.sh`]((https://github.com/CliMA/slurm-buildkite/blob/master/bin/cron.sh)) at a regular interval (currently every minute). This does the following:
+Our Slurm cluster is not web-accessible, so we are unable to use webhooks to schedule the Slurm jobs. Instead poll the Buildkite API (via [`bin/poll.py`](https://github.com/CliMA/slurm-buildkite/blob/master/bin/poll.py)) via a cron job running on the cluster login node ([`bin/cron.sh`]((https://github.com/CliMA/slurm-buildkite/blob/master/bin/cron.sh)) at a regular interval (currently every minute). This does the following:
 
 1. Get a list of the Buildkite jobs which are currently queued or running on the cluster via [`squeue`](https://slurm.schedmd.com/squeue.html). We check this by using a specific job name (`buildkite`), and storing the Buildkite job id in the Slurm job comment.
 
@@ -27,3 +27,10 @@ agents:
   slurm_tasks_per_node: 2
 ```
 would pass the options `--nodes=1 --tasks-per-node=2`.
+
+## Installing/updating a buildkite agent
+
+To install or update the buildkite agent, acquire a copy from the [release
+page](https://github.com/buildkite/agent/releases/) on GitHub. Download the
+Linux x86 version, unzip the archive, and copy the `buildkite-agent` executable
+in the `bin` folder

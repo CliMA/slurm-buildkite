@@ -8,4 +8,5 @@
 set -euo pipefail # exit on failure or unset variable
 
 df -h /tmp/
-srun --ntasks-per-node=1 --ntasks=${SLURM_JOB_NUM_NODES} rm -rf "/tmp/slurm_${SLURM_JOB_ID}"
+# Tear down the temporary folder created in `environment` for all the MPI processes
+pdsh -w $SLURM_NODELIST rm -rf "/tmp/slurm_${SLURM_JOB_ID}"

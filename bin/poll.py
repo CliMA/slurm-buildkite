@@ -38,8 +38,8 @@ def day_ago_utc():
     return (datetime.utcnow() - timedelta(days=1)).replace(microsecond=0).isoformat() + 'Z'
 
 # What SLURM partition to use by default depending on the queue
-DEFAULT_PARTITIONS = {"default": "default", "central": "any", "new-central": "expansion"}
-DEFAULT_GPU_PARTITIONS = {"default": "default", "central": "any", "new-central": "gpu"}
+DEFAULT_PARTITIONS = {"default": "default", "new-central": "any", "new-central": "expansion"}
+DEFAULT_GPU_PARTITIONS = {"default": "default", "new-central": "any", "new-central": "gpu"}
 
 def all_started_builds():
     since = hours_ago_utc(nhours=48)
