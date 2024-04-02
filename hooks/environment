@@ -20,8 +20,9 @@ export CI_BUILD_DIR="${BUILDKITE_BUILD_PATH}/${BUILDKITE_PIPELINE_SLUG}/${BUILDK
 export BUILDKITE_BUILD_CHECKOUT_PATH="${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
 export BUILDKITE_API_TOKEN=$(cat "${SLURM_BUILDKITE_PATH}/.buildkite_token")
 
+# Create temporary folder created in `environment` for all the MPI processes
 export TMPDIR="/tmp/slurm-${SLURM_JOB_ID}"
-srun --ntasks-per-node=1 --ntasks=${SLURM_JOB_NUM_NODES} mkdir -p "${TMPDIR}"
+pdsh -w $SLURM_NODELIST mkdir -p "${TMPDIR}"
 printenv TMPDIR
 
 ulimit -c unlimited
