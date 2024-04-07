@@ -206,7 +206,6 @@ try:
 
             # parse agent query rule tags
             agent_query_rules = job.get('agent_query_rules', [])
-            agent_config = 'default'
             agent_queue  = 'default'
             agent_partition = DEFAULT_PARTITIONS[agent_queue]
             agent_modules = ""
@@ -224,10 +223,6 @@ try:
                     # user-provided agent tag has to take the precedence)
                     if not partition_has_changed:
                         agent_partition = DEFAULT_PARTITIONS.get(agent_queue, None)
-                    continue
-
-                if key == 'config':
-                    agent_config = val
                     continue
 
                 if key == 'partition':
@@ -271,7 +266,6 @@ try:
             cmd.append("--partition={}".format(agent_partition))
 
             cmd.append(joinpath(BUILDKITE_PATH, 'bin/slurmjob.sh'))
-            cmd.append(agent_config)
             cmd.append(jobid)
             if agent_modules:
                 cmd.append(agent_modules)
