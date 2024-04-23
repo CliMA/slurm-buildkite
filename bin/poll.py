@@ -38,8 +38,8 @@ def day_ago_utc():
     return (datetime.utcnow() - timedelta(days=1)).replace(microsecond=0).isoformat() + 'Z'
 
 # What SLURM partition to use by default depending on the queue
-DEFAULT_PARTITIONS = {"default": "default", "central": "any", "new-central": "expansion"}
-DEFAULT_GPU_PARTITIONS = {"default": "default", "central": "any", "new-central": "gpu"}
+DEFAULT_PARTITIONS = {"default": "default", "new-central": "any", "new-central": "expansion"}
+DEFAULT_GPU_PARTITIONS = {"default": "default", "new-central": "any", "new-central": "gpu"}
 
 def all_started_builds():
     since = hours_ago_utc(nhours=48)
@@ -117,6 +117,7 @@ try:
     )
 
     # check the currently running jobs for their buildkite ids and slurmjob ids
+    # %k prints the comment, which is the form: buildid____link
     squeue = subprocess.run(['squeue',
                              '--name=buildkite',
                              '--noheader',
@@ -125,7 +126,8 @@ try:
 
     currentjobs = dict()
     for line in squeue.stdout.decode('utf-8').splitlines():
-        buildkite_job_id, slurm_job_id = line.split(',', 1)
+        buildkite_job_id_and_link, slurm_job_id = line.split(',', 1)
+        buildkite_job_id = buildkite_job_id_and_link.split("___")[0]
         currentjobs[buildkite_job_id] = slurm_job_id
 
     logger.info('jobs in slurm queue: {0}'.format(len(currentjobs)))
@@ -191,15 +193,20 @@ try:
                 if not DEBUG:
                     os.mkdir(slurmlog_prefix)
 
+            buildkite_link = "https://buildkite.com/clima/{}/builds/{}#{}".format(pipeline['name'].lower(), buildnum, buildid)
+
             logger.info('  new job: pipeline: {0}, number: {1}, build id: {2}, job id: {3}' \
                         .format(pipeline['name'], buildnum, buildid, jobid))
+            logger.info('  {}'.format(buildkite_link))
 
-            # passthough the job id as a comment to the slurm job
-            # which can be queried with %k
+            # The comment section is used to scan jobids and ensure we are not
+            # submitting multiple copies of the same job. This happens at the
+            # beginning of the try-catch, in the squeue command.
+
             cmd = [
                 'sbatch',
                 '--parsable',
-                '--comment=' + jobid,
+                '--comment=' + jobid + "___" + buildkite_link,
                 '--output=' + joinpath(slurmlog_prefix, 'slurm-%j.log')
             ]
 
