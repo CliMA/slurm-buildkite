@@ -6,7 +6,7 @@ import requests
 import subprocess
 
 from datetime import datetime, date, timedelta
-from os.path import join as joinpath
+from os.path import join as joinpath, isfile
 
 # debug flag, set this to true to get log output
 # of state change transitions but do not actually
@@ -37,9 +37,9 @@ def hours_ago_utc(nhours):
 def day_ago_utc():
     return (datetime.utcnow() - timedelta(days=1)).replace(microsecond=0).isoformat() + 'Z'
 
-# What SLURM partition to use by default depending on the queue
-DEFAULT_PARTITIONS = {"default": "default", "central": "any", "new-central": "expansion"}
-DEFAULT_GPU_PARTITIONS = {"default": "default", "central": "any", "new-central": "gpu"}
+# Map from buildkite queue to slurm partition
+DEFAULT_PARTITIONS = {"clima": "default", "new-central": "expansion"}
+DEFAULT_GPU_PARTITIONS = {"clima": "default", "new-central": "gpu"}
 
 def all_started_builds():
     since = hours_ago_utc(nhours=48)
@@ -89,13 +89,15 @@ def all_canceled_builds():
     return builds
 
 # Try to guess if this given argument implies that a GPU was requested
-def gpu_is_requested(slurm_arg, val):
+def gpu_is_requested(slurm_args, agent_query_rules):
     # Just find the word "gpu" in the tag or in its value. It might be a very
     # wide filter...
-    return "gpu" in slurm_arg or "gpu" in val
+    gpu_in_slurm_args = any("gpu" in s for s in slurm_args)
+    gpu_in_slurm_values = any("gpu" in agent_query_rules[key] for key in slurm_args)
+    return gpu_in_slurm_args or gpu_in_slurm_values
 
 try:
-    # optional env overloads
+    # TODO: BUILDKITE_PATH and BUILDKITE_QUEUE should not have defaults
     BUILDKITE_PATH = os.environ.get(
         'BUILDKITE_PATH',
         '/groups/esm/slurm-buildkite'
@@ -108,15 +110,22 @@ try:
 
     BUILDKITE_QUEUE = os.environ.get(
         'BUILDKITE_QUEUE',
-        'central'
+        'new-central'
     )
 
-    BUILDKITE_EXCLUDE_NODES = os.environ.get(
-        'BUILDKITE_EXCLUDE_NODES',
-        open(joinpath(BUILDKITE_PATH,'.exclude_nodes'), 'r').read().rstrip()
-    )
+    exclude_nodes_path = joinpath(BUILDKITE_PATH, '.exclude_nodes')
+    # Check if the file exists and read its content, otherwise fallback to an empty string
+    if isfile(exclude_nodes_path):
+        exclude_nodes_from_file = open(exclude_nodes_path, 'r').read().rstrip()
+    else:
+        exclude_nodes_from_file = ''
+
+    # Get the value from environment variable, or fallback to the file content or an empty string
+    BUILDKITE_EXCLUDE_NODES = os.environ.get('BUILDKITE_EXCLUDE_NODES', exclude_nodes_from_file)
+
 
     # check the currently running jobs for their buildkite ids and slurmjob ids
+    # %k prints the comment, which is the form: buildid____link
     squeue = subprocess.run(['squeue',
                              '--name=buildkite',
                              '--noheader',
@@ -125,7 +134,8 @@ try:
 
     currentjobs = dict()
     for line in squeue.stdout.decode('utf-8').splitlines():
-        buildkite_job_id, slurm_job_id = line.split(',', 1)
+        buildkite_job_id_and_link, slurm_job_id = line.split(',', 1)
+        buildkite_job_id = buildkite_job_id_and_link.split("___")[0]
         currentjobs[buildkite_job_id] = slurm_job_id
 
     logger.info('jobs in slurm queue: {0}'.format(len(currentjobs)))
@@ -134,7 +144,7 @@ try:
     # poll the buildkite API to check if there are any scheduled/running builds
     builds = all_started_builds()
 
-    # loop over all scheduled and running builds for all pipelines in the organiation
+    # loop over all scheduled and running builds for all pipelines in the organization
 
     # cancel any previous build jobs, collect these first during job submission for any running builds
     # we further collect all canceled build jobs at the end and issue one scancel call
@@ -162,6 +172,7 @@ try:
             # and not submitted as slurm job
             # valid states: running, scheduled, passed, failed, blocked,
             #               canceled, canceling, skipped, not_run, finished
+            # https://buildkite.com/docs/pipelines/defining-steps#build-states
             jobstate = job['state']
 
             # if an individual job during an scheduled or running build is
@@ -191,91 +202,68 @@ try:
                 if not DEBUG:
                     os.mkdir(slurmlog_prefix)
 
+            buildkite_link = "https://buildkite.com/clima/{}/builds/{}#{}".format(pipeline['name'].lower(), buildnum, buildid)
+
             logger.info('  new job: pipeline: {0}, number: {1}, build id: {2}, job id: {3}' \
                         .format(pipeline['name'], buildnum, buildid, jobid))
 
-            # passthough the job id as a comment to the slurm job
-            # which can be queried with %k
+            # The comment section is used to scan jobids and ensure we are not
+            # submitting multiple copies of the same job. This happens at the
+            # beginning of the try-catch, in the squeue command.
+
             cmd = [
                 'sbatch',
                 '--parsable',
-                '--comment=' + jobid,
+                '--comment=' + jobid + "___" + buildkite_link,
                 '--output=' + joinpath(slurmlog_prefix, 'slurm-%j.log')
             ]
 
-
             # parse agent query rule tags
             agent_query_rules = job.get('agent_query_rules', [])
-            agent_config = 'default'
-            agent_queue  = 'default'
-            agent_partition = DEFAULT_PARTITIONS[agent_queue]
-            agent_modules = ""
-            use_exclude = True
-            partition_has_changed = False
+            agent_query_rules = {item.split('=')[0]: item.split('=')[1] for item in agent_query_rules}
 
-            for tag in agent_query_rules:
-                # e.g. tag = 'slurm_ntasks=3'
-                key, val = tag.split('=', 1)
-
-                if key == 'queue':
-                    agent_queue = val
-                    # We read the queue, we need to update the default
-                    # partition, unless the partition was already read (the
-                    # user-provided agent tag has to take the precedence)
-                    if not partition_has_changed:
-                        agent_partition = DEFAULT_PARTITIONS.get(agent_queue, None)
-                    continue
-
-                if key == 'config':
-                    agent_config = val
-                    continue
-
-                if key == 'partition':
-                    agent_partition = val
-                    # We flag that we changed the partition, so if we read the
-                    # queue argument, we know we don't have to reset the
-                    # partition
-                    partition_has_changed = True
-                    continue
-
-                if key == "modules":
-                    agent_modules = val
-                    continue
-
-                # passthrough all agent slurm prefixed query rules to the slurm job
-                if key.startswith('slurm_'):
-                    slurm_arg = key.split('slurm_', 1)[1].replace('_', '-')
-
-                    # If we are requesting a GPU and we haven't specified a
-                    # partition, let's switch the partition to the default GPU
-                    # partition
-                    if gpu_is_requested(slurm_arg, val) and not partition_has_changed:
-                        agent_partition = DEFAULT_GPU_PARTITIONS.get(agent_queue, None)
-
-                    if slurm_arg == "exclude":
-                        use_exclude = False
-
-                    if val:
-                        cmd.append('--{0}={1}'.format(slurm_arg, val))
-                    else:
-                        # flag with no value
-                        cmd.append('--{0}'.format(slurm_arg))
-
-            # exclude node hosts that may be problematic (comma sep string)
-            if use_exclude and BUILDKITE_EXCLUDE_NODES:
-                cmd.append("--exclude=" + BUILDKITE_EXCLUDE_NODES)
-
-            if not agent_queue in (BUILDKITE_QUEUE, 'default'):
+            agent_queue = agent_query_rules['queue']
+            if agent_queue != BUILDKITE_QUEUE:
                 continue
 
+            # Pass arguments starting with `slurm_` through to sbatch.
+            # To pass flags, set them to true, e.g. slurm_exclusive: true
+            slurm_keys = list(filter(lambda x: x.startswith('slurm_'), agent_query_rules.keys()))
+            for key in slurm_keys:
+                value = agent_query_rules[key]
+                arg = key.split('slurm_', 1)[1].replace('_', '-')
+                # If the value is 'true', we know this is a flag instead of an argument
+                if value == 'true':
+                    cmd.append('--{0}'.format(slurm_arg))
+                else:
+                    cmd.append('--{0}={1}'.format(arg, value))
+
+            # Set partition depending on if a GPU has been requested
+            # Fallback to 'default' if there is no default partition
+            if gpu_is_requested(slurm_keys, agent_query_rules):
+                default_partition = DEFAULT_GPU_PARTITIONS.get(agent_queue, 'default')
+            else:
+                default_partition = DEFAULT_PARTITIONS.get(agent_queue, 'default')
+
+            agent_partition = agent_query_rules.get('partition', default_partition)
             cmd.append("--partition={}".format(agent_partition))
 
+            use_exclude = agent_query_rules.get('exclude', 'true')
+            if use_exclude == 'true' and BUILDKITE_EXCLUDE_NODES:
+                cmd.append("--exclude=" + BUILDKITE_EXCLUDE_NODES)
+
             cmd.append(joinpath(BUILDKITE_PATH, 'bin/slurmjob.sh'))
+
+            # TODO: What is the 'config'?
+            agent_config = agent_query_rules.get('config', 'default')
             cmd.append(agent_config)
             cmd.append(jobid)
-            if agent_modules:
+
+            agent_modules = agent_query_rules.get('modules', "")
+            if agent_modules != "":
                 cmd.append(agent_modules)
 
+            # TODO: Why is this set to 0?
             slurmjob_id = 0
             if not DEBUG:
                 logger.info("new slurm jobid={0}: `{1}` (queue: {2}, hostname: {3})".format(slurmjob_id, " ".join(cmd), agent_queue, os.uname()[1]))
@@ -285,7 +273,7 @@ try:
                                      universal_newlines=True)
                 if ret.returncode != 0:
                     logger.error(
-                        "slurm error retcode={0}: `{1}`\n{2}" \
+                        "slurm error during job submission, retcode={0}: `{1}`\n{2}" \
                         .format(ret.returncode, " ".join(cmd), ret.stderr))
                     continue
                 slurmjob_id = int(ret.stdout)
@@ -314,7 +302,7 @@ try:
                                  universal_newlines=True)
             if ret.returncode != 0:
                 logger.error(
-                    "slurm error retcode={0}: `{1}`\n{2}").format(ret.returncode,
+                    "slurm error when cancelling jobs, retcode={0}: `{1}`\n{2}").format(ret.returncode,
                                                                   " ".join(cmd),
                                                                   ret.stderr)
 
