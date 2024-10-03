@@ -125,7 +125,7 @@ try:
 
 
     # check the currently running jobs for their buildkite ids and slurmjob ids
-    # %k prints the comment, which is the form: buildid____link
+    # %k prints the comment, which is the form: jobid____link
     squeue = subprocess.run(['squeue',
                              '--name=buildkite',
                              '--noheader',
@@ -138,7 +138,7 @@ try:
         buildkite_job_id = buildkite_job_id_and_link.split("___")[0]
         currentjobs[buildkite_job_id] = slurm_job_id
 
-    logger.info('jobs in slurm queue: {0}'.format(len(currentjobs)))
+    logger.info(f"jobs in slurm queue: {len(currentjobs)}")
 
 
     # poll the buildkite API to check if there are any scheduled/running builds
@@ -190,27 +190,30 @@ try:
             slurmlog_prefix = joinpath(
                 BUILDKITE_PATH,
                 'logs',
-                '{0}'.format(date.today()),
-                'build_{0}'.format(buildid),
+                f'{date.today()}',
+                f'build_{buildid}',
             )
 
-            # slurm does not create a missing path prefix
-            # to create the directory prefix if it does not exist
+            # Slurm does not create a missing path prefix
+            # Create the directory prefix if it does not exist
             if not os.path.isdir(slurmlog_prefix):
-                logger.info('new build: pipeline: {0}, number: {1}, build id: {2}' \
-                            .format(pipeline['name'], buildnum, buildid))
+                logger.info(f"New build: pipeline: {pipeline['name']}, number: {buildnum}, build id: {buildid}")
                 if not DEBUG:
                     os.mkdir(slurmlog_prefix)
 
-            buildkite_link = "https://buildkite.com/clima/{}/builds/{}#{}".format(pipeline['name'].lower(), buildnum, buildid)
+            logger.info(f"New job: pipeline: {pipeline['name']}, number: {buildnum}, build id: {buildid}, job id: {jobid}")
 
-            logger.info('  new job: pipeline: {0}, number: {1}, build id: {2}, job id: {3}' \
-                        .format(pipeline['name'], buildnum, buildid, jobid))
+
+            # TODO: Should the buildid be replaced by the jobid? This link doesn't seem to work
+            # Example:
+            # 2024-10-03 11:09:14,562 - poll - INFO -   New job: pipeline: Oceananigans, number: 17748, build id: 01925374-9c3e-4d6b-8208-2cedba05dd1e, job id: 01925375-0afa-40d2-bcc5-729d0612f3e0
+            # this works (jobid): https://buildkite.com/clima/oceananigans/builds/17748#01925375-0afa-40d2-bcc5-729d0612f3e0 
+            # but this doesn't (buildid): https://buildkite.com/clima/oceananigans/builds/17748#01925374-9c3e-4d6b-8208-2cedba05dd1e 
+            buildkite_link = f"https://buildkite.com/clima/{pipeline['name'].lower()}/builds/{buildnum}#{buildid}"
 
             # The comment section is used to scan jobids and ensure we are not
             # submitting multiple copies of the same job. This happens at the
             # beginning of the try-catch, in the squeue command.
-
             cmd = [
                 'sbatch',
                 '--parsable',
@@ -222,7 +225,7 @@ try:
             agent_query_rules = job.get('agent_query_rules', [])
             agent_query_rules = {item.split('=')[0]: item.split('=')[1] for item in agent_query_rules}
 
-            agent_queue = agent_query_rules['queue']
+            agent_queue = agent_query_rules.get('queue', None)
             if agent_queue != BUILDKITE_QUEUE:
                 continue
 
@@ -233,10 +236,10 @@ try:
                 value = agent_query_rules[key]
                 arg = key.split('slurm_', 1)[1].replace('_', '-')
                 # If the value is 'true', we know this is a flag instead of an argument
-                if value == 'true':
-                    cmd.append('--{0}'.format(slurm_arg))
+                if value == 'true' or value == 'True':
+                    cmd.append(f"--{arg}")
                 else:
-                    cmd.append('--{0}={1}'.format(arg, value))
+                    cmd.append(f"--{arg}={value}")
 
             # Set partition depending on if a GPU has been requested
             # Fallback to 'default' if there is no default partition
@@ -246,7 +249,7 @@ try:
                 default_partition = DEFAULT_PARTITIONS.get(agent_queue, 'default')
 
             agent_partition = agent_query_rules.get('partition', default_partition)
-            cmd.append("--partition={}".format(agent_partition))
+            cmd.append(f"--partition={agent_partition}")
 
             use_exclude = agent_query_rules.get('exclude', 'true')
             if use_exclude == 'true' and BUILDKITE_EXCLUDE_NODES:
@@ -266,15 +269,19 @@ try:
             # TODO: Why is this set to 0?
             slurmjob_id = 0
             if not DEBUG:
-                logger.info("new slurm jobid={0}: `{1}` (queue: {2}, hostname: {3})".format(slurmjob_id, " ".join(cmd), agent_queue, os.uname()[1]))
+                logger.info(
+                    f"New Slurm jobid={slurmjob_id}: `{' '.join(cmd)}` "
+                    f"(queue: {agent_queue}, hostname: {os.uname()[1]})"
+                )
                 ret = subprocess.run(cmd,
                                      stdout=subprocess.PIPE,
                                      stderr=subprocess.PIPE,
                                      universal_newlines=True)
                 if ret.returncode != 0:
                     logger.error(
-                        "slurm error during job submission, retcode={0}: `{1}`\n{2}" \
-                        .format(ret.returncode, " ".join(cmd), ret.stderr))
+                        f"Slurm error during job submission, retcode={ret.returncode}: "
+                        f"`{' '.join(cmd)}`\n{ret.stderr}"
+                    )
                     continue
                 slurmjob_id = int(ret.stdout)
 
@@ -289,12 +296,12 @@ try:
 
     # if we have scheduled / running slurm jobs to cancel, cancel them in one call
     if len(cancel_slurm_jobids):
-        logger.info('canceling {0} jobs in slurm queue'.format(len(cancel_slurm_jobids)))
+        logger.info(f"Canceling {len(cancel_slurm_jobids)} jobs in Slurm queue")
 
         cmd = ['scancel', '--name=buildkite']
         cmd.extend(cancel_slurm_jobids)
 
-        logger.info("new slurm job: `{0}`".format(" ".join(cmd)))
+        logger.info(f"New slurm job: `{' '.join(cmd)}`")
         if not DEBUG:
             ret = subprocess.run(cmd,
                                  stdout=subprocess.PIPE,
@@ -302,9 +309,9 @@ try:
                                  universal_newlines=True)
             if ret.returncode != 0:
                 logger.error(
-                    "slurm error when cancelling jobs, retcode={0}: `{1}`\n{2}").format(ret.returncode,
-                                                                  " ".join(cmd),
-                                                                  ret.stderr)
+                    f"Slurm error when cancelling jobs, retcode={ret.returncode}: "
+                    f"`{' '.join(cmd)}`\n{ret.stderr}"
+                )
 
 except Exception:
     logger.error("Caught exception during poll",  exc_info=True)
