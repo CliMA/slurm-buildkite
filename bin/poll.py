@@ -38,8 +38,8 @@ def day_ago_utc():
     return (datetime.utcnow() - timedelta(days=1)).replace(microsecond=0).isoformat() + 'Z'
 
 # Map from buildkite queue to slurm partition
-DEFAULT_PARTITIONS = {"clima": "default", "new-central": "expansion"}
-DEFAULT_GPU_PARTITIONS = {"clima": "default", "new-central": "gpu"}
+DEFAULT_PARTITIONS = {"clima": "batch*", "new-central": "expansion"}
+DEFAULT_GPU_PARTITIONS = {"clima": "batch*", "new-central": "gpu"}
 
 def all_started_builds():
     since = hours_ago_utc(nhours=48)
@@ -97,21 +97,14 @@ def gpu_is_requested(slurm_args, agent_query_rules):
     return gpu_in_slurm_args or gpu_in_slurm_values
 
 try:
-    # TODO: BUILDKITE_PATH and BUILDKITE_QUEUE should not have defaults
-    BUILDKITE_PATH = os.environ.get(
-        'BUILDKITE_PATH',
-        '/groups/esm/slurm-buildkite'
-    )
+    BUILDKITE_PATH = os.environ['BUILDKITE_PATH']
+    BUILDKITE_QUEUE = os.environ['BUILDKITE_QUEUE']
 
     BUILDKITE_API_TOKEN = os.environ.get(
         'BUILDKITE_API_TOKEN',
         open(joinpath(BUILDKITE_PATH,'.buildkite_token'), 'r').read().rstrip()
     )
 
-    BUILDKITE_QUEUE = os.environ.get(
-        'BUILDKITE_QUEUE',
-        'new-central'
-    )
 
     exclude_nodes_path = joinpath(BUILDKITE_PATH, '.exclude_nodes')
     # Check if the file exists and read its content, otherwise fallback to an empty string
@@ -201,8 +194,6 @@ try:
                 if not DEBUG:
                     os.mkdir(slurmlog_prefix)
 
-            logger.info(f"New job: pipeline: {pipeline_name}, number: {buildnum}, build id: {buildid}, job id: {jobid}")
-
             # The old buildkite_link format didn't seem to work, switching buildid for jobid in the link fixed it
             # Example:
             # 2024-10-03 11:09:14,562 - poll - INFO - New job: pipeline: Oceananigans, number: 17748, build id: 01925374-9c3e-4d6b-8208-2cedba05dd1e, job id: 01925375-0afa-40d2-bcc5-729d0612f3e0
@@ -223,11 +214,14 @@ try:
             agent_query_rules = job.get('agent_query_rules', [])
             agent_query_rules = {item.split('=')[0]: item.split('=')[1] for item in agent_query_rules}
 
-            # TODO: Should we only log builds with the right queue, since queue corresponds to a given cluster?
             agent_queue = agent_query_rules.get('queue', None)
+            # TODO: Should we only log builds with the right queue, since queue corresponds to a given cluster?
+            logger.info(f"New Job - Queue: {agent_queue} - Pipeline: {pipeline_name} - {buildkite_link}")
             if agent_queue != BUILDKITE_QUEUE:
+                if agent_queue is None:
+                    logger.error(f"New Job missing queue - Pipeline: {pipeline_name} - {buildkite_link}")
                 continue
-
+            
             # Pass arguments starting with `slurm_` through to sbatch.
             # To pass flags, set them to true, e.g. slurm_exclusive: true
             slurm_keys = list(filter(lambda x: x.startswith('slurm_'), agent_query_rules.keys()))

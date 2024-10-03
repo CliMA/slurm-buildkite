@@ -2,7 +2,6 @@
 
 # The `pre-command` hook will run just before your build command runs
 
-
 set -euo pipefail # exit on failure or unset variable
 set -v
 

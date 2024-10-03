@@ -15,8 +15,8 @@ source /etc/profile.d/modules.sh
 
 export SLURM_BUILDKITE_PATH="$(dirname "${BUILDKITE_BIN_PATH}")"
 export SHARED_DEPOT="${BUILDKITE_BUILD_PATH}/shared_depot"
-export GIT_SSH_COMMAND="ssh -i ${SLURM_BUILDKITE_PATH}/.ssh/id_rsa -o IdentitiesOnly=yes -o UserKnownHostsFile=${SLURM_BUILDKITE_PATH}/.ssh/known_hosts"
 export CI_BUILD_DIR="${BUILDKITE_BUILD_PATH}/${BUILDKITE_PIPELINE_SLUG}/${BUILDKITE_BUILD_NUMBER}"
+export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$CI_BUILD_DIR/depot/default}:${SHARED_DEPOT}"
 export BUILDKITE_BUILD_CHECKOUT_PATH="${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
 export BUILDKITE_API_TOKEN=$(cat "${SLURM_BUILDKITE_PATH}/.buildkite_token")
 
@@ -31,12 +31,21 @@ echo "--- Slurm Job ID: ${SLURM_JOB_ID}"
 scontrol show job ${SLURM_JOB_ID} --details
 scontrol show node ${SLURM_JOB_NODELIST}
 
-# TODO: Properly set the modulepath depending on queue
-if $(grep -q "Red Hat" /etc/redhat-release);  then
-    # MODULEPATH for Caltech HPC
-    export MODULEPATH="/groups/esm/modules:$MODULEPATH"
-    module load git/2.39.3-gcc-11.3.1-zfr3sti
-fi
+case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
+    "new-central")
+        source cluster_environments/caltech_hpc.sh
+        ;;
+    "clima")
+        # No action needed in this case
+        ;;
+    *)
+        echo "Error: Unknown queue '$BUILDKITE_AGENT_META_DATA_QUEUE'. Exiting."
+        exit 1
+        ;;
+esac
+
+# Load modules after sourcing cluster-specific environment
+module load ${BUILDKITE_AGENT_META_DATA_MODULES:-}
 
 # this is set to avoid rare race conditions on the same node with concurrent (step) jobs
 export OMPI_MCA_orte_tmpdir_base="$TMPDIR"
