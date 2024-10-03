@@ -125,7 +125,8 @@ try:
 
 
     # check the currently running jobs for their buildkite ids and slurmjob ids
-    # %k prints the comment, which is the form: jobid____link
+    # %k prints the comment, which is the form: <buildkite_jobid>___<buildkite_link>
+    # TODO: Could we just use the buildkite link for the comment? The jobid prefix is already included in the link
     squeue = subprocess.run(['squeue',
                              '--name=buildkite',
                              '--noheader',
@@ -140,16 +141,14 @@ try:
 
     logger.info(f"jobs in slurm queue: {len(currentjobs)}")
 
-
     # poll the buildkite API to check if there are any scheduled/running builds
     builds = all_started_builds()
-
-    # loop over all scheduled and running builds for all pipelines in the organization
 
     # cancel any previous build jobs, collect these first during job submission for any running builds
     # we further collect all canceled build jobs at the end and issue one scancel call
     cancel_slurm_jobids = []
 
+    # loop over all scheduled and running builds for all pipelines in the buildkite org
     for build in builds:
 
         # get the build id, number and pipeline
@@ -157,6 +156,7 @@ try:
         buildid = build['id']
         buildnum = build['number']
         pipeline = build['pipeline']
+        pipeline_name = pipeline['name']
 
         # for all jobs in this build
         for job in build['jobs']:
@@ -197,19 +197,18 @@ try:
             # Slurm does not create a missing path prefix
             # Create the directory prefix if it does not exist
             if not os.path.isdir(slurmlog_prefix):
-                logger.info(f"New build: pipeline: {pipeline['name']}, number: {buildnum}, build id: {buildid}")
+                logger.info(f"New build: pipeline: {pipeline_name}, number: {buildnum}, build id: {buildid}")
                 if not DEBUG:
                     os.mkdir(slurmlog_prefix)
 
-            logger.info(f"New job: pipeline: {pipeline['name']}, number: {buildnum}, build id: {buildid}, job id: {jobid}")
+            logger.info(f"New job: pipeline: {pipeline_name}, number: {buildnum}, build id: {buildid}, job id: {jobid}")
 
-
-            # TODO: Should the buildid be replaced by the jobid? This link doesn't seem to work
+            # The old buildkite_link format didn't seem to work, switching buildid for jobid in the link fixed it
             # Example:
-            # 2024-10-03 11:09:14,562 - poll - INFO -   New job: pipeline: Oceananigans, number: 17748, build id: 01925374-9c3e-4d6b-8208-2cedba05dd1e, job id: 01925375-0afa-40d2-bcc5-729d0612f3e0
+            # 2024-10-03 11:09:14,562 - poll - INFO - New job: pipeline: Oceananigans, number: 17748, build id: 01925374-9c3e-4d6b-8208-2cedba05dd1e, job id: 01925375-0afa-40d2-bcc5-729d0612f3e0
             # this works (jobid): https://buildkite.com/clima/oceananigans/builds/17748#01925375-0afa-40d2-bcc5-729d0612f3e0 
             # but this doesn't (buildid): https://buildkite.com/clima/oceananigans/builds/17748#01925374-9c3e-4d6b-8208-2cedba05dd1e 
-            buildkite_link = f"https://buildkite.com/clima/{pipeline['name'].lower()}/builds/{buildnum}#{buildid}"
+            buildkite_link = f"https://buildkite.com/clima/{pipeline_name.lower().replace(' ', '-')}/builds/{buildnum}#{jobid}"
 
             # The comment section is used to scan jobids and ensure we are not
             # submitting multiple copies of the same job. This happens at the
@@ -221,10 +220,10 @@ try:
                 '--output=' + joinpath(slurmlog_prefix, 'slurm-%j.log')
             ]
 
-            # parse agent query rule tags
             agent_query_rules = job.get('agent_query_rules', [])
             agent_query_rules = {item.split('=')[0]: item.split('=')[1] for item in agent_query_rules}
 
+            # TODO: Should we only log builds with the right queue, since queue corresponds to a given cluster?
             agent_queue = agent_query_rules.get('queue', None)
             if agent_queue != BUILDKITE_QUEUE:
                 continue
@@ -256,23 +255,13 @@ try:
                 cmd.append("--exclude=" + BUILDKITE_EXCLUDE_NODES)
 
             cmd.append(joinpath(BUILDKITE_PATH, 'bin/slurmjob.sh'))
-
-            # TODO: What is the 'config'?
-            agent_config = agent_query_rules.get('config', 'default')
-            cmd.append(agent_config)
             cmd.append(jobid)
 
             agent_modules = agent_query_rules.get('modules', "")
             if agent_modules != "":
                 cmd.append(agent_modules)
 
-            # TODO: Why is this set to 0?
-            slurmjob_id = 0
             if not DEBUG:
-                logger.info(
-                    f"New Slurm jobid={slurmjob_id}: `{' '.join(cmd)}` "
-                    f"(queue: {agent_queue}, hostname: {os.uname()[1]})"
-                )
                 ret = subprocess.run(cmd,
                                      stdout=subprocess.PIPE,
                                      stderr=subprocess.PIPE,
@@ -283,7 +272,15 @@ try:
                         f"`{' '.join(cmd)}`\n{ret.stderr}"
                     )
                     continue
+
                 slurmjob_id = int(ret.stdout)
+                logger.info(
+                    f"New Slurm jobid={slurmjob_id}: `{' '.join(cmd)}` "
+                    f"(queue: {agent_queue}, hostname: {os.uname()[1]})"
+                )
+            else:
+                logger.info(f"Buildkite link: {buildkite_link}")
+                logger.info(f"Slurm command: {' '.join(cmd)}")
 
     # Run canceled job builds at the end
     canceled_builds = all_canceled_builds()
@@ -296,7 +293,7 @@ try:
 
     # if we have scheduled / running slurm jobs to cancel, cancel them in one call
     if len(cancel_slurm_jobids):
-        logger.info(f"Canceling {len(cancel_slurm_jobids)} jobs in Slurm queue")
+        logger.info(f"Canceling {len(cancel_slurm_jobids)} jobs in slurm queue")
 
         cmd = ['scancel', '--name=buildkite']
         cmd.extend(cancel_slurm_jobids)

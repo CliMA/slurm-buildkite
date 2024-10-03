@@ -31,134 +31,15 @@ echo "--- Slurm Job ID: ${SLURM_JOB_ID}"
 scontrol show job ${SLURM_JOB_ID} --details
 scontrol show node ${SLURM_JOB_NODELIST}
 
+# TODO: Properly set the modulepath depending on queue
 if $(grep -q "Red Hat" /etc/redhat-release);  then
-    echo "We are on a RedHat 9 node"
-
-    # We are on rhel9 nodes, we also want our modules
+    # MODULEPATH for Caltech HPC
     export MODULEPATH="/groups/esm/modules:$MODULEPATH"
-
     module load git/2.39.3-gcc-11.3.1-zfr3sti
-else
-    # We are on the CentOS nodes
-    module load git/2.26.0
 fi
-
 
 # this is set to avoid rare race conditions on the same node with concurrent (step) jobs
 export OMPI_MCA_orte_tmpdir_base="$TMPDIR"
-
-case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
-    # standard configurations
-   ""|default)
-        module load ${BUILDKITE_AGENT_META_DATA_MODULES:-}
-        export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$CI_BUILD_DIR/depot/default}:${SHARED_DEPOT}"
-        ;;
-
-    init)
-        echo "--- init env configuration"
-        ;;
-
-    cpu)
-        echo "--- cpu env configuration"
-        module load singularity/3.5.2
-        module load python3/${PYTHON_VERSION:=3.8.5}
-        module load julia/${JULIA_VERSION:=1.10.0}
-        if [ "${MPI_IMPL:=mpich}" == "mpich" ]; then
-            module load mpich/${MPICH_VERSION:=4.0.0} hdf5/1.12.1 netcdf-c/4.8.1
-        else
-            module load openmpi/${OPENMPI_VERSION:=4.1.1}
-            if [ "${OPENMPI_VERSION:=4.1.1}" == "4.1.1" ]; then
-                module load hdf5/1.12.1-ompi411
-            else
-                module load hdf5/1.12.1
-            fi
-        fi
-
-        export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:=$CI_BUILD_DIR/depot/cpu}"
-        export JULIA_CUDA_USE_BINARYBUILDER=false
-        export JULIA_MPI_BINARY=system
-        export JULIA_HDF5_PATH=""
-
-        # this is set to not use shared memory segments as a btl transport
-        # they do not get cleaned up on the cluster
-        # export OMPI_MCA_btl="self,tcp"
-        export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
-
-        echo "--- slurm job configuration"
-        sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,nnodes,nodelist
-        ;;
-
-    cpu-test)
-        echo "--- cpu test env configuration"
-        module load singularity/3.5.2
-        module load python3/${PYTHON_VERSION:=3.8.5}
-        module load julia/${JULIA_VERSION:=1.10.0}
-        if [ "${MPI_IMPL:=mpich}" == "mpich" ]; then
-            module load mpich/${MPICH_VERSION:=4.0.0} hdf5/1.12.1 netcdf-c/4.8.1
-        else
-            module load openmpi/${OPENMPI_VERSION:=4.1.1} hdf5/1.12.1-ompi411
-        fi
-
-        export JULIA_DEPOT_PATH:="${CI_BUILD_DIR}/depot/cpu"
-        export JULIA_CUDA_USE_BINARYBUILDER=false
-        export JULIA_MPI_BINARY=system
-        export JULIA_HDF5_PATH=""
-
-        # export OMPI_MCA_btl="self,tcp"
-        export OMPI_MCA_orte_tmpdir_base="/tmp/slurm-buildkite/${BUILDKITE_STEP_KEY}"
-        export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
-
-        echo "--- slurm job configuration"
-        sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,nnodes,nodelist
-        ;;
-
-    gpu)
-        echo "--- gpu env configuration"
-        module load singularity/3.5.2
-        module load python3/${PYTHON_VERSION:=3.8.5}
-        module load julia/${JULIA_VERSION:=1.10.0}
-        module load cuda/${CUDA_VERSION:=12.2} openmpi/${OPENMPI_VERSION:=4.0.4}_cuda-${CUDA_VERSION:=12.2} hdf5/1.10.1 netcdf-c/4.6.1
-
-        export JULIA_DEPOT_PATH="${JUIA_DEPOT_PATH:=$CI_BUILD_DIR/depot/gpu}"
-        export JULIA_CUDA_USE_BINARYBUILDER=false
-        export JULIA_MPI_BINARY=system
-
-        # export OMPI_MCA_btl="self,tcp"
-        export OMPI_MCA_orte_tmpdir_base="/tmp/slurm-buildkite/${BUILDKITE_STEP_KEY}"
-        export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
-
-        echo "--- slurm job configuration"
-        sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,nnodes,nodelist
-
-        echo "--- gpu device configuration"
-        nvidia-smi -q
-        ;;
-
-    gpu-test)
-        echo "--- gpu test env configuration"
-        module load singularity/3.5.2
-        module load python3/${PYTHON_VERSION:=3.8.5}
-        module load julia/${JULIA_VERSION:=1.10.0}
-        module load cuda/${CUDA_VERSION:=12.2} openmpi/${OPENMPI_VERSION:=4.0.4}_cuda-${CUDA_VERSION:=12.2} hdf5/1.10.1 netcdf-c/4.6.1
-
-        export JULIA_DEPOT_PATH="${CI_BUILD_DIR}/depot/gpu"
-        export JULIA_CUDA_USE_BINARYBUILDER=false
-        export JULIA_MPI_BINARY=system
-
-        # export OMPI_MCA_btl="self,tcp"
-        export OMPI_MCA_orte_tmpdir_base="/tmp/slurm-buildkite/${BUILDKITE_STEP_KEY}"
-
-        echo "--- slurm job configuration"
-        sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,nnodes,nodelist
-
-        echo "--- gpu test device configuration"
-        nvidia-smi -q
-        ;;
-
-    *)
-        echo "agent config must init, cpu or gpu"
-        ;;
-esac
 
 # From https://stackoverflow.com/a/51141872, to remove colors from modules
 # (Color tags mess up the builkite log)
@@ -169,11 +50,6 @@ printf -- '--- ' && echo $module_list
 if [ -n "${SLURM_GPUS_ON_NODE:-}" ]; then
     echo "--- GPUs available on ${HOSTNAME}"
     nvidia-smi -L
-fi
-
-# Add pipeline specific ENV variables
-if [ "$BUILDKITE_PIPELINE_NAME" == "ClimateMachine-Docs" ]; then
-    export DOCUMENTER_KEY=$(cat "$BUILDKITE_PATH/.climatemachine_documenter_key")
 fi
 
 export SLACK_TOKEN=$(cat "$BUILDKITE_PATH/.slack_token")

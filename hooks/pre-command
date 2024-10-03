@@ -15,13 +15,4 @@ set -v
 # scratch is purged
 chmod g+s $BUILDKITE_BUILD_PATH
 
-case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
-    # standard configurations run with shared base depot
-    # but temporary prefix for each run
-    cpu|cpu-test|gpu|gpu-test)
-        #TMP_DEPOT=`mktemp -d` || exit 1
-        #export JULIA_DEPOT_PATH="${TMP_DEPOT}:${JULIA_DEPOT_PATH}"
-        ;;
-esac
-
 set +v
