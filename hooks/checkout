@@ -20,5 +20,20 @@ if [ ! -d "${BUILDKITE_BUILD_CHECKOUT_PATH}/.git" ]; then
         fi 
         let COUNT=COUNT+1
     done
+    cd "${BUILDKITE_BUILD_CHECKOUT_PATH}"
+    if [ "$BUILDKITE_COMMIT" = "HEAD" ]; then
+        git checkout -f "${BUILDKITE_BRANCH}"
+    else
+        git checkout -f "${BUILDKITE_COMMIT}"
+    fi
+    # emulate https://github.com/buildkite/agent/blob/7e0166eebed5bf3cc289edae97145803429e75f9/bootstrap/bootstrap.go#L1448-L1458
+    if ! buildkite-agent meta-data exists "buildkite:git:commit" ; then
+        echo "Sending Git commit information to Buildkite"
+        git --no-pager show HEAD -s --format=fuller --no-color -- | buildkite-agent meta-data set "buildkite:git:commit"
+    fi
+else
+    echo "--- Using cached git repo ${BUILDKITE_BUILD_CHECKOUT_PATH}"
+    cd "${BUILDKITE_BUILD_CHECKOUT_PATH}"
 fi
+
 set +v

@@ -14,35 +14,50 @@ set -euo pipefail # exit on failure or unset variable
 source /etc/profile.d/modules.sh
 
 export SLURM_BUILDKITE_PATH="$(dirname "${BUILDKITE_BIN_PATH}")"
+export GIT_SSH_COMMAND="ssh -i ${SLURM_BUILDKITE_PATH}/.ssh/id_rsa -o IdentitiesOnly=yes"
 export SHARED_DEPOT="${BUILDKITE_BUILD_PATH}/shared_depot"
 export CI_BUILD_DIR="${BUILDKITE_BUILD_PATH}/${BUILDKITE_PIPELINE_SLUG}/${BUILDKITE_BUILD_NUMBER}"
-export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$CI_BUILD_DIR/depot/default}:${SHARED_DEPOT}"
+export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$CI_BUILD_DIR/depot/default}"
 export BUILDKITE_BUILD_CHECKOUT_PATH="${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
 export BUILDKITE_API_TOKEN=$(cat "${SLURM_BUILDKITE_PATH}/.buildkite_token")
-
-export TMPDIR="/tmp/slurm-${SLURM_JOB_ID}"
-srun --ntasks-per-node=1 --ntasks=${SLURM_JOB_NUM_NODES} mkdir -p "${TMPDIR}"
-printenv TMPDIR
-
-ulimit -c unlimited
 
 # Slurm Job Info
 echo "--- Slurm Job ID: ${SLURM_JOB_ID}"
 scontrol show job ${SLURM_JOB_ID} --details
 scontrol show node ${SLURM_JOB_NODELIST}
 
+export TMPDIR="/tmp/slurm-${SLURM_JOB_ID}"
+
+echo "--- Queue: $BUILDKITE_AGENT_META_DATA_QUEUE"
+echo "JULIA_DEPOT_PATH: $JULIA_DEPOT_PATH"
+
 case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
     "new-central")
-        source cluster_environments/caltech_hpc.sh
+        echo "SLURM_NODELIST: $SLURM_NODELIST"
+    
+        if ! pdsh -w $SLURM_NODELIST mkdir -p "${TMPDIR}"; then
+            echo "Warning: pdsh failed to create directory. Falling back to srun."
+            srun --ntasks-per-node=1 --ntasks=${SLURM_JOB_NUM_NODES} mkdir -p "${TMPDIR}"
+        fi
+    
+    # Check if TMPDIR was created
+        if ! srun --ntasks-per-node=1 --ntasks=${SLURM_JOB_NUM_NODES} test -d "${TMPDIR}"; then
+            echo "Error: Failed to create $TMPDIR"
+            exit 1
+        fi
+        source "${SLURM_BUILDKITE_PATH}/cluster_environments/caltech_hpc.sh"
         ;;
     "clima")
-        # No action needed in this case
+        mkdir -p "${TMPDIR}"
         ;;
     *)
         echo "Error: Unknown queue '$BUILDKITE_AGENT_META_DATA_QUEUE'. Exiting."
         exit 1
         ;;
 esac
+
+ulimit -c unlimited
+printenv TMPDIR
 
 # Load modules after sourcing cluster-specific environment
 module load ${BUILDKITE_AGENT_META_DATA_MODULES:-}
@@ -61,4 +76,32 @@ if [ -n "${SLURM_GPUS_ON_NODE:-}" ]; then
     nvidia-smi -L
 fi
 
-export SLACK_TOKEN=$(cat "$BUILDKITE_PATH/.slack_token")
+log_missing_file() {
+    echo "Warning: File $1 not found."
+}
+
+if [ "$BUILDKITE_PIPELINE_NAME" == "ClimaOcean-examples" ]; then
+    if [ -f "$BUILDKITE_PATH/.climaocean_documenter" ]; then
+        export DOCUMENTER_KEY=$(cat "$BUILDKITE_PATH/.climaocean_documenter")
+    else
+        log_missing_file "$BUILDKITE_PATH/.climaocean_documenter"
+    fi
+fi
+
+if [ -f "$BUILDKITE_PATH/.slack_token" ]; then
+    export SLACK_TOKEN=$(cat "$BUILDKITE_PATH/.slack_token")
+else
+    log_missing_file "$BUILDKITE_PATH/.slack_token"
+fi
+
+if [ -f "$BUILDKITE_PATH/.ecco_username" ]; then
+    export ECCO_USERNAME=$(cat "$BUILDKITE_PATH/.ecco_username")
+else
+    log_missing_file "$BUILDKITE_PATH/.ecco_username"
+fi
+
+if [ -f "$BUILDKITE_PATH/.ecco_password" ]; then
+    export ECCO_PASSWORD=$(cat "$BUILDKITE_PATH/.ecco_password")
+else
+    log_missing_file "$BUILDKITE_PATH/.ecco_password"
+fi
