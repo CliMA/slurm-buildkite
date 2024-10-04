@@ -14,6 +14,7 @@ set -euo pipefail # exit on failure or unset variable
 source /etc/profile.d/modules.sh
 
 export SLURM_BUILDKITE_PATH="$(dirname "${BUILDKITE_BIN_PATH}")"
+export GIT_SSH_COMMAND="ssh -i ${SLURM_BUILDKITE_PATH}/.ssh/id_rsa -o IdentitiesOnly=yes"
 export SHARED_DEPOT="${BUILDKITE_BUILD_PATH}/shared_depot"
 export CI_BUILD_DIR="${BUILDKITE_BUILD_PATH}/${BUILDKITE_PIPELINE_SLUG}/${BUILDKITE_BUILD_NUMBER}"
 export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$CI_BUILD_DIR/depot/default}:${SHARED_DEPOT}"

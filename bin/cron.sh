@@ -2,7 +2,7 @@
 source /etc/bashrc
 
 case "$(hostname)" in
-    "login1.cm.cluster"|"login3.cm.cluster")
+    "login3.cm.cluster")
         export BUILDKITE_PATH="/groups/esm/slurm-buildkite"
         export BUILDKITE_QUEUE='new-central'
         ;;
@@ -10,6 +10,7 @@ case "$(hostname)" in
         export BUILDKITE_PATH="/clima/slurm-buildkite"
         export BUILDKITE_QUEUE='clima'
         ;;
+
 esac
 
 cd $BUILDKITE_PATH
