@@ -8,4 +8,13 @@
 set -euo pipefail # exit on failure or unset variable
 
 df -h /tmp/
-srun --ntasks-per-node=1 --ntasks=${SLURM_JOB_NUM_NODES} rm -rf "/tmp/slurm_${SLURM_JOB_ID}"
+
+# Remove tempdir
+case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
+    "new-central")
+        srun --ntasks-per-node=1 --ntasks=${SLURM_JOB_NUM_NODES} rm -rf "/tmp/slurm_${SLURM_JOB_ID}"
+        ;;
+    "clima")
+        rm -rf "/tmp/slurm_${SLURM_JOB_ID}"
+        ;;
+esac

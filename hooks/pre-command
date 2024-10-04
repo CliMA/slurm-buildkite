@@ -12,6 +12,11 @@ set -v
 # Ensure that the output folder can be seen by the everyone in the hpc_esm group
 # Since the output folder is in /scratch, we must change this setting every time
 # scratch is purged
-chmod g+s $BUILDKITE_BUILD_PATH
+case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
+    "new-central")
+        chgrp hpc_esm $BUILDKITE_BUILD_PATH
+        chmod g+s $BUILDKITE_BUILD_PATH
+        ;;
+esac
 
 set +v

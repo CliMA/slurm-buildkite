@@ -2,6 +2,7 @@
 import datetime
 import logging
 import os
+import re
 import requests
 import subprocess
 
@@ -15,11 +16,14 @@ from os.path import join as joinpath, isfile
 # If DEBUG_SLURM_BUILDKITE is set, we are in the Debug mode
 DEBUG = "DEBUG_SLURM_BUILDKITE" in os.environ
 
+# Time window to query buildkite jobs
+NHOURS = 96
+
 # setup root logger
 logger = logging.Logger('poll')
 handler = logging.StreamHandler()
-handler.setLevel(logging.DEBUG)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s: %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 if DEBUG:
@@ -38,11 +42,15 @@ def day_ago_utc():
     return (datetime.utcnow() - timedelta(days=1)).replace(microsecond=0).isoformat() + 'Z'
 
 # Map from buildkite queue to slurm partition
-DEFAULT_PARTITIONS = {"clima": "batch*", "new-central": "expansion"}
-DEFAULT_GPU_PARTITIONS = {"clima": "batch*", "new-central": "gpu"}
+DEFAULT_PARTITIONS = {"clima": "batch", "new-central": "expansion"}
+DEFAULT_GPU_PARTITIONS = {"clima": "batch", "new-central": "gpu"}
 
-def all_started_builds():
-    since = hours_ago_utc(nhours=48)
+# Map from buildkite queue to slurm reservation
+DEFAULT_RESERVATIONS = {"new-central": "clima"}
+
+# Retrieve all 'scheduled', 'running', 'failing' builds in the last nhours
+def all_started_builds(nhours): 
+    since = hours_ago_utc(nhours=nhours)
     npage, builds = 1, []
     while True:
         req = requests.get(
@@ -79,7 +87,7 @@ def all_canceled_builds():
                 'finished_from' : since
             },
             headers = {
-                'Authorization': 'Bearer ' + BUILDKITE_API_TOKEN
+                'Authorization': f'Bearer {BUILDKITE_API_TOKEN}'
             }
         ).json()
         if not len(resp):
@@ -96,7 +104,13 @@ def gpu_is_requested(slurm_args, agent_query_rules):
     gpu_in_slurm_values = any("gpu" in agent_query_rules[key] for key in slurm_args)
     return gpu_in_slurm_args or gpu_in_slurm_values
 
+# Sanitize a pipeline name to use it in a URL
+# Lowers and replaces any groups of non-alphanumeric character with a '-'
+def sanitize_pipeline_name(name):
+    return re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
+
 try:
+
     BUILDKITE_PATH = os.environ['BUILDKITE_PATH']
     BUILDKITE_QUEUE = os.environ['BUILDKITE_QUEUE']
 
@@ -104,7 +118,6 @@ try:
         'BUILDKITE_API_TOKEN',
         open(joinpath(BUILDKITE_PATH,'.buildkite_token'), 'r').read().rstrip()
     )
-
 
     exclude_nodes_path = joinpath(BUILDKITE_PATH, '.exclude_nodes')
     # Check if the file exists and read its content, otherwise fallback to an empty string
@@ -118,8 +131,7 @@ try:
 
 
     # check the currently running jobs for their buildkite ids and slurmjob ids
-    # %k prints the comment, which is the form: <buildkite_jobid>___<buildkite_link>
-    # TODO: Could we just use the buildkite link for the comment? The jobid prefix is already included in the link
+    # %k prints the comment, which contains the buildkite link
     squeue = subprocess.run(['squeue',
                              '--name=buildkite',
                              '--noheader',
@@ -128,17 +140,21 @@ try:
 
     currentjobs = dict()
     for line in squeue.stdout.decode('utf-8').splitlines():
-        buildkite_job_id_and_link, slurm_job_id = line.split(',', 1)
-        buildkite_job_id = buildkite_job_id_and_link.split("___")[0]
-        currentjobs[buildkite_job_id] = slurm_job_id
+        buildkite_url, slurm_job_id = line.split(',', 1)
+        currentjobs.setdefault(buildkite_url, []).append(slurm_job_id)
 
-    logger.info(f"jobs in slurm queue: {len(currentjobs)}")
+    logger.debug(f"Current jobs: {list(currentjobs.keys())}")
+ 
+    for url in currentjobs.keys():
+        if len(currentjobs[url]) > 1:
+            logger.warning(f"{url} has multiple slurmjobs: {currentjobs[url]})")
+
+    logger.info(f"Current slurm jobs (submitted or started): {len(currentjobs)}")
 
     # poll the buildkite API to check if there are any scheduled/running builds
-    builds = all_started_builds()
+    builds = all_started_builds(NHOURS)
 
-    # cancel any previous build jobs, collect these first during job submission for any running builds
-    # we further collect all canceled build jobs at the end and issue one scancel call
+    # Accumulate jobs to be canceled in one batch 
     cancel_slurm_jobids = []
 
     # loop over all scheduled and running builds for all pipelines in the buildkite org
@@ -167,61 +183,59 @@ try:
             #               canceled, canceling, skipped, not_run, finished
             # https://buildkite.com/docs/pipelines/defining-steps#build-states
             jobstate = job['state']
+            buildkite_url = job['web_url']
 
-            # if an individual job during an scheduled or running build is
-            # marked as canceled, add it to the list of jobids to cancel
-            if jobstate == 'canceled' and jobid in currentjobs:
-                cancel_slurm_jobids.append(currentjobs[jobid])
+            # Cancel jobs marked by buildkite as 'canceled'
+            if jobstate == 'canceled':
+                if buildkite_url in currentjobs:
+                    cancel_slurm_jobids.extend(currentjobs[buildkite_url])
+                else:
+                    logger.warning(f"Canceled job {buildkite_url} not found in current jobs.")
                 continue
 
             # jobstate is not pending, or a scheduled job (but not running yet)
             # is already submitted to slurm
-            if jobstate != 'scheduled' or jobid in currentjobs:
+            if jobstate != 'scheduled' or buildkite_url in currentjobs:
                 continue
 
-            # build sbatch command, collect job logs per build id
-            slurmlog_prefix = joinpath(
+            # Directory containing slurm logs for given build
+            slurmlog_dir = joinpath(
                 BUILDKITE_PATH,
                 'logs',
                 f'{date.today()}',
                 f'build_{buildid}',
             )
-
-            # Slurm does not create a missing path prefix
             # Create the directory prefix if it does not exist
-            if not os.path.isdir(slurmlog_prefix):
-                logger.info(f"New build: pipeline: {pipeline_name}, number: {buildnum}, build id: {buildid}")
+            if not os.path.isdir(slurmlog_dir):
+                build_link = f"https://buildkite.com/clima/{sanitize_pipeline_name(pipeline_name)}/builds/{buildnum}"
+                logger.info(f"New build: {pipeline_name} - {build_link}")
                 if not DEBUG:
-                    os.mkdir(slurmlog_prefix)
-
-            # The old buildkite_link format didn't seem to work, switching buildid for jobid in the link fixed it
-            # Example:
-            # 2024-10-03 11:09:14,562 - poll - INFO - New job: pipeline: Oceananigans, number: 17748, build id: 01925374-9c3e-4d6b-8208-2cedba05dd1e, job id: 01925375-0afa-40d2-bcc5-729d0612f3e0
-            # this works (jobid): https://buildkite.com/clima/oceananigans/builds/17748#01925375-0afa-40d2-bcc5-729d0612f3e0 
-            # but this doesn't (buildid): https://buildkite.com/clima/oceananigans/builds/17748#01925374-9c3e-4d6b-8208-2cedba05dd1e 
-            buildkite_link = f"https://buildkite.com/clima/{pipeline_name.lower().replace(' ', '-')}/builds/{buildnum}#{jobid}"
-
+                    os.mkdir(slurmlog_dir)
+            
             # The comment section is used to scan jobids and ensure we are not
             # submitting multiple copies of the same job. This happens at the
             # beginning of the try-catch, in the squeue command.
             cmd = [
                 'sbatch',
                 '--parsable',
-                '--comment=' + jobid + "___" + buildkite_link,
-                '--output=' + joinpath(slurmlog_prefix, 'slurm-%j.log')
+                '--comment=' + buildkite_url,
+                '--output=' + joinpath(slurmlog_dir, 'slurm-%j.log')
             ]
-
             agent_query_rules = job.get('agent_query_rules', [])
             agent_query_rules = {item.split('=')[0]: item.split('=')[1] for item in agent_query_rules}
 
             agent_queue = agent_query_rules.get('queue', None)
-            # TODO: Should we only log builds with the right queue, since queue corresponds to a given cluster?
-            logger.info(f"New Job - Queue: {agent_queue} - Pipeline: {pipeline_name} - {buildkite_link}")
-            if agent_queue != BUILDKITE_QUEUE:
-                if agent_queue is None:
-                    logger.error(f"New Job missing queue - Pipeline: {pipeline_name} - {buildkite_link}")
+
+            # Only log jobs on current queue unless debugging or missing queue
+            if agent_queue is None:
+                logger.error(f"New job missing queue. Pipeline: {pipeline_name}, {buildkite_url}")
                 continue
+            elif agent_queue == BUILDKITE_QUEUE:
+                logger.info(f"New job on `{agent_queue}`. Pipeline: {pipeline_name}, {buildkite_url}")
             
+            if agent_queue != BUILDKITE_QUEUE:
+                continue
+
             # Pass arguments starting with `slurm_` through to sbatch.
             # To pass flags, set them to true, e.g. slurm_exclusive: true
             slurm_keys = list(filter(lambda x: x.startswith('slurm_'), agent_query_rules.keys()))
@@ -229,7 +243,7 @@ try:
                 value = agent_query_rules[key]
                 arg = key.split('slurm_', 1)[1].replace('_', '-')
                 # If the value is 'true', we know this is a flag instead of an argument
-                if value == 'true' or value == 'True':
+                if value.lower() == 'true':
                     cmd.append(f"--{arg}")
                 else:
                     cmd.append(f"--{arg}={value}")
@@ -237,16 +251,22 @@ try:
             # Set partition depending on if a GPU has been requested
             # Fallback to 'default' if there is no default partition
             if gpu_is_requested(slurm_keys, agent_query_rules):
-                default_partition = DEFAULT_GPU_PARTITIONS.get(agent_queue, 'default')
+                default_partition = DEFAULT_GPU_PARTITIONS[agent_queue]
             else:
-                default_partition = DEFAULT_PARTITIONS.get(agent_queue, 'default')
+                default_partition = DEFAULT_PARTITIONS[agent_queue]
 
             agent_partition = agent_query_rules.get('partition', default_partition)
             cmd.append(f"--partition={agent_partition}")
 
+            # Check that there is no user-given reservation and that there
+            # is a valid default reservation
+            default_reservation = DEFAULT_RESERVATIONS.get(agent_queue, None)
+            if "slurm_reservation" not in slurm_keys and default_reservation:
+                cmd.append(f"--reservation={default_reservation}")
+
             use_exclude = agent_query_rules.get('exclude', 'true')
             if use_exclude == 'true' and BUILDKITE_EXCLUDE_NODES:
-                cmd.append("--exclude=" + BUILDKITE_EXCLUDE_NODES)
+                cmd.append(f"--exclude={BUILDKITE_EXCLUDE_NODES}")
 
             cmd.append(joinpath(BUILDKITE_PATH, 'bin/slurmjob.sh'))
             cmd.append(jobid)
@@ -261,6 +281,7 @@ try:
                                      stderr=subprocess.PIPE,
                                      universal_newlines=True)
                 if ret.returncode != 0:
+                    # TODO: Run a minimal failing slurm job to return the error to buildkite
                     logger.error(
                         f"Slurm error during job submission, retcode={ret.returncode}: "
                         f"`{' '.join(cmd)}`\n{ret.stderr}"
@@ -268,31 +289,29 @@ try:
                     continue
 
                 slurmjob_id = int(ret.stdout)
-                logger.info(
-                    f"New Slurm jobid={slurmjob_id}: `{' '.join(cmd)}` "
-                    f"(queue: {agent_queue}, hostname: {os.uname()[1]})"
-                )
+                log_path = joinpath(slurmlog_dir, f'slurm-{slurmjob_id}.log')
+                logger.info(f"Slurm job submitted, ID: {slurmjob_id}, log: {log_path}")
             else:
-                logger.info(f"Buildkite link: {buildkite_link}")
+                logger.info(f"Buildkite link: {buildkite_url}")
                 logger.info(f"Slurm command: {' '.join(cmd)}")
 
-    # Run canceled job builds at the end
+    # Cancel jobs in canceled builds
     canceled_builds = all_canceled_builds()
 
     for build in canceled_builds:
         for job in build['jobs']:
-            jobid = job['id']
-            if jobid in currentjobs:
-                cancel_slurm_jobids.append(currentjobs[jobid])
+            if job['type'] == 'script':
+                buildkite_url = job['web_url']
+                if buildkite_url in currentjobs:
+                    cancel_slurm_jobids.extend(currentjobs[buildkite_url])
 
-    # if we have scheduled / running slurm jobs to cancel, cancel them in one call
-    if len(cancel_slurm_jobids):
-        logger.info(f"Canceling {len(cancel_slurm_jobids)} jobs in slurm queue")
+    # Cancel individually marked slurm jobs in one call
+    if cancel_slurm_jobids:
+        logger.info(f"Canceling {len(cancel_slurm_jobids)} slurm  jobs")
 
         cmd = ['scancel', '--name=buildkite']
         cmd.extend(cancel_slurm_jobids)
 
-        logger.info(f"New slurm job: `{' '.join(cmd)}`")
         if not DEBUG:
             ret = subprocess.run(cmd,
                                  stdout=subprocess.PIPE,
@@ -300,7 +319,7 @@ try:
                                  universal_newlines=True)
             if ret.returncode != 0:
                 logger.error(
-                    f"Slurm error when cancelling jobs, retcode={ret.returncode}: "
+                    f"Slurm error when canceling jobs, retcode={ret.returncode}: "
                     f"`{' '.join(cmd)}`\n{ret.stderr}"
                 )
 
