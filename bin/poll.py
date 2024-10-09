@@ -35,7 +35,7 @@ def day_ago_utc():
 
 
 def all_started_builds():
-    since = hours_ago_utc(nhours=48)
+    since = hours_ago_utc(nhours=96)
     npage, builds = 1, []
     while True:
         req = requests.get(
@@ -98,10 +98,13 @@ try:
         'central'
     )
 
-    BUILDKITE_EXCLUDE_NODES = os.environ.get(
-        'BUILDKITE_EXCLUDE_NODES',
-        open(joinpath(BUILDKITE_PATH,'.exclude_nodes'), 'r').read().rstrip()
-    )
+    if "BUILDKITE_EXCLUDE_NODES" in os.environ:
+        BUILDKITE_EXCLUDE_NODES = os.environ['BUILDKITE_EXCLUDE_NODES']
+    else:
+        try:
+            BUILDKITE_EXCLUDE_NODES = open(joinpath(BUILDKITE_PATH,'.exclude_nodes'), 'r').read().rstrip()
+        except:
+            BUILDKITE_EXCLUDE_NODES = ""
 
     # check the currently running jobs for their buildkite ids and slurmjob ids
     squeue = subprocess.run(['squeue',

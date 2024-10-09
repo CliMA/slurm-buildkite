@@ -25,18 +25,19 @@ echo "--- Slurm Job ID: ${SLURM_JOB_ID}"
 scontrol show job ${SLURM_JOB_ID}
 
 module purge
-module load git/2.26.0
 
 # this is set to avoid rare race conditions on the same node with concurrent (step) jobs
-export OMPI_MCA_orte_tmpdir_base="/tmp/slurm-buildkite/${BUILDKITE_STEP_KEY}"
+# export OMPI_MCA_orte_tmpdir_base="/tmp/slurm-buildkite/${BUILDKITE_STEP_KEY}"
 
 
 case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     # standard configurations
    ""|default)
+	echo "--- default configuration"
         module load ${BUILDKITE_AGENT_META_DATA_MODULES:-}
         export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$CI_BUILD_DIR/depot/default}"
-        ;;
+        module list
+	;;
 
     init)
         echo "--- init env configuration"
@@ -149,6 +150,7 @@ printf -- '--- ' && module list
 if [ -n "${SLURM_GPUS_ON_NODE:-}" ]; then
     echo "--- GPUs available on ${HOSTNAME}"
     nvidia-smi -L
+    echo "VISIBLE DEVICES: ${CUDA_VISIBLE_DEVICES}"
 fi
 
 # Add pipeline specific ENV variables
