@@ -200,7 +200,6 @@ try:
                 logger.info(f"New build: pipeline: {pipeline_name} - {build_link}")
                 if not DEBUG:
                     os.mkdir(slurmlog_dir)
-
             buildkite_url = job['web_url']
 
             # The comment section is used to scan jobids and ensure we are not
@@ -213,8 +212,8 @@ try:
                 '--output=' + joinpath(slurmlog_dir, 'slurm-%j.log')
             ]
             agent_query_rules = job.get('agent_query_rules', [])
-            # TODO: agent_query_rules don't seem to get passed correctly
             agent_query_rules = {item.split('=')[0]: item.split('=')[1] for item in agent_query_rules}
+
             agent_queue = agent_query_rules.get('queue', None)
 
             # Only log jobs on current queue unless debugging or missing queue

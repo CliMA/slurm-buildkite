@@ -12,8 +12,9 @@ set -v
 # Ensure that the output folder can be seen by the everyone in the hpc_esm group
 # Since the output folder is in /scratch, we must change this setting every time
 # scratch is purged
-# TODO: This doesn't work on clima - chmod: changing permissions of '/scratch/clima/slurm-buildkite': Operation not permitted
-# chmod g+s $BUILDKITE_BUILD_PATH
+# TODO: the chgrp is cluster-specific
+chgrp hpc_esm $BUILDKITE_BUILD_PATH
+chmod g+s $BUILDKITE_BUILD_PATH
 
 echo $BUILDKITE_AGENT_META_DATA_QUEUE
 
