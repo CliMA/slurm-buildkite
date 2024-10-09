@@ -271,8 +271,7 @@ try:
                                      stderr=subprocess.PIPE,
                                      universal_newlines=True)
                 if ret.returncode != 0:
-                    # TODO: Return this to buildkite log and cancel buildkite job
-                    # The buildkite jobs REST API does not support this, need to switch to GraphQL
+                    # TODO: Run a minimal failing slurm job to return the error to buildkite
                     logger.error(
                         f"Slurm error during job submission, retcode={ret.returncode}: "
                         f"`{' '.join(cmd)}`\n{ret.stderr}"
