@@ -30,7 +30,26 @@ export TMPDIR="/tmp/slurm-${SLURM_JOB_ID}"
 
 case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
     "new-central")
-        pdsh -w $SLURM_NODELIST mkdir -p "${TMPDIR}"
+        echo "Queue: new-central"
+        echo "SLURM_NODELIST: $SLURM_NODELIST"
+    
+    # Try SSH connection
+        if ! ssh -o ConnectTimeout=10 -o BatchMode=yes $SLURM_NODELIST "echo Test connection successful"; then
+            echo "Warning: SSH connection failed. Falling back to srun for directory creation."
+            srun --ntasks-per-node=1 --ntasks=${SLURM_JOB_NUM_NODES} mkdir -p "${TMPDIR}"
+        else
+            echo "SSH connection successful. Proceeding with pdsh."
+            if ! pdsh -w $SLURM_NODELIST mkdir -p "${TMPDIR}"; then
+                echo "Warning: pdsh failed to create directory. Falling back to srun."
+                srun --ntasks-per-node=1 --ntasks=${SLURM_JOB_NUM_NODES} mkdir -p "${TMPDIR}"
+            fi
+        fi
+    
+    # Check if TMPDIR was created
+        if ! srun --ntasks-per-node=1 --ntasks=${SLURM_JOB_NUM_NODES} test -d "${TMPDIR}"; then
+            echo "Error: Failed to create $TMPDIR"
+            exit 1
+        fi
         source "${SLURM_BUILDKITE_PATH}/cluster_environments/caltech_hpc.sh"
         ;;
     "clima")
@@ -43,8 +62,14 @@ case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
         ;;
 esac
 
+
 ulimit -c unlimited
 printenv TMPDIR
+
+if [ ! -d "$TMPDIR" ]; then
+  echo "Error: Failed to create $TMPDIR"
+  exit 1
+fi
 
 # Load modules after sourcing cluster-specific environment
 module load ${BUILDKITE_AGENT_META_DATA_MODULES:-}
