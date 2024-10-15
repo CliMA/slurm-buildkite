@@ -19,9 +19,12 @@ export GIT_SSH_COMMAND="ssh -i ${SLURM_BUILDKITE_PATH}/.ssh/id_rsa -o Identities
 export CI_BUILD_DIR="${BUILDKITE_BUILD_PATH}/${BUILDKITE_PIPELINE_SLUG}/${BUILDKITE_BUILD_NUMBER}"
 export BUILDKITE_BUILD_CHECKOUT_PATH="${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
 export BUILDKITE_API_TOKEN=$(cat "${SLURM_BUILDKITE_PATH}/.buildkite_token")
+export BUILDKITE_READ_ARTIFACTS_API_TOKEN=$(cat "${SLURM_BUILDKITE_PATH}/.buildkite_read_artifacts_token")
 
 export TMPDIR="/tmp/slurm-${SLURM_JOB_ID}"
+# Create the tmpdir on all the nodes
 srun --ntasks-per-node=1 --ntasks=${SLURM_JOB_NUM_NODES} mkdir -p "${TMPDIR}"
+pdsh -w $SLURM_NODELIST mkdir -p "${TMPDIR}"
 printenv TMPDIR
 
 ulimit -c unlimited
@@ -51,7 +54,7 @@ case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
     # standard configurations
    ""|default)
         module load ${BUILDKITE_AGENT_META_DATA_MODULES:-}
-        export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$CI_BUILD_DIR/depot/default}:${SHARED_DEPOT}"
+        export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$CI_BUILD_DIR/depot/default}"
         ;;
 
     init)
@@ -176,4 +179,12 @@ if [ "$BUILDKITE_PIPELINE_NAME" == "ClimateMachine-Docs" ]; then
     export DOCUMENTER_KEY=$(cat "$BUILDKITE_PATH/.climatemachine_documenter_key")
 fi
 
+if [ "$BUILDKITE_PIPELINE_NAME" == "ClimaOcean-examples" ]; then
+    export DOCUMENTER_KEY=$(cat "$BUILDKITE_PATH/.climaocean_documenter")
+fi
+
+
 export SLACK_TOKEN=$(cat "$BUILDKITE_PATH/.slack_token")
+export ECCO_USERNAME=$(cat "$BUILDKITE_PATH/.ecco_username")
+export ECCO_PASSWORD=$(cat "$BUILDKITE_PATH/.ecco_password")
+
