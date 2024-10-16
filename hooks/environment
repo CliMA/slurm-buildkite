@@ -81,7 +81,7 @@ export OMPI_MCA_orte_tmpdir_base="$TMPDIR"
 # (Color tags mess up the builkite log)
 module_list=$(module list | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g')
 
-printf -- '---- ' && echo $module_list
+printf -- '--- ' && echo $module_list
 
 if [ -n "${SLURM_GPUS_ON_NODE:-}" ]; then
     echo "--- GPUs available on ${HOSTNAME}"
