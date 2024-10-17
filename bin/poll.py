@@ -22,7 +22,7 @@ NHOURS = 96
 logger = logging.Logger('poll')
 handler = logging.StreamHandler()
 handler.setLevel(logging.DEBUG)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter('%(asctime)s - %(levelname)s: %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 if DEBUG:
@@ -140,7 +140,9 @@ try:
     currentjobs = dict()
     for line in squeue.stdout.decode('utf-8').splitlines():
         buildkite_url, slurm_job_id = line.split(',', 1)
+
         currentjobs[buildkite_url] = slurm_job_id
+
 
     logger.info(f"Current slurm jobs (submitted or started): {len(currentjobs)}")
 
@@ -176,10 +178,14 @@ try:
             #               canceled, canceling, skipped, not_run, finished
             # https://buildkite.com/docs/pipelines/defining-steps#build-states
             jobstate = job['state']
+            buildkite_url = job['web_url']
 
             # Cancel jobs marked by buildkite as 'canceled'
-            if jobstate == 'canceled' and jobid in currentjobs:
-                cancel_slurm_jobids.append(currentjobs[jobid])
+            if jobstate == 'canceled':
+                if buildkite_url in currentjobs:
+                    cancel_slurm_jobids.append(currentjobs[jobid])
+                else:
+                    logger.warning(f"Canceled job {buildkite_url} not found in current jobs.")
                 continue
 
             # jobstate is not pending, or a scheduled job (but not running yet)
@@ -200,8 +206,7 @@ try:
                 logger.info(f"New build: pipeline: {pipeline_name} - {build_link}")
                 if not DEBUG:
                     os.mkdir(slurmlog_dir)
-            buildkite_url = job['web_url']
-
+            
             # The comment section is used to scan jobids and ensure we are not
             # submitting multiple copies of the same job. This happens at the
             # beginning of the try-catch, in the squeue command.
@@ -280,10 +285,7 @@ try:
 
                 slurmjob_id = int(ret.stdout)
                 log_path = joinpath(slurmlog_dir, f'slurm-{slurmjob_id}.log')
-                logger.info(
-                    f"New slurm jobid={slurmjob_id}: cmd: {' '.join(cmd)} log: {log_path}"
-                    f" running on queue {agent_queue}, hostname {os.uname()[1]}"
-                )
+                logger.info(f"Slurm job submitted, ID: {slurmjob_id}, log: {log_path}")
             else:
                 logger.info(f"Buildkite link: {buildkite_url}")
                 logger.info(f"Slurm command: {' '.join(cmd)}")
