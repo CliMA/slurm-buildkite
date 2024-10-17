@@ -16,6 +16,7 @@ from os.path import join as joinpath, isfile
 # If DEBUG_SLURM_BUILDKITE is set, we are in the Debug mode
 DEBUG = "DEBUG_SLURM_BUILDKITE" in os.environ
 
+# Time window to query buildkite jobs
 NHOURS = 96
 
 # setup root logger
@@ -140,11 +141,13 @@ try:
     currentjobs = dict()
     for line in squeue.stdout.decode('utf-8').splitlines():
         buildkite_url, slurm_job_id = line.split(',', 1)
+        currentjobs.setdefault(buildkite_url, []).append(slurm_job_id)
 
-        currentjobs[buildkite_url] = slurm_job_id
-
-    if currentjobs:
-        logger.debug(f"Current jobs: {list(currentjobs.keys())}")
+    logger.debug(f"Current jobs: {list(currentjobs.keys())}")
+ 
+    for url in currentjobs.keys():
+        if len(currentjobs[url]) > 1:
+            logger.warning(f"{url} has multiple slurmjobs: {currentjobs[url]})")
 
     logger.info(f"Current slurm jobs (submitted or started): {len(currentjobs)}")
 
@@ -185,7 +188,7 @@ try:
             # Cancel jobs marked by buildkite as 'canceled'
             if jobstate == 'canceled':
                 if buildkite_url in currentjobs:
-                    cancel_slurm_jobids.append(currentjobs[buildkite_url])
+                    cancel_slurm_jobids.extend(currentjobs[buildkite_url])
                 else:
                     logger.warning(f"Canceled job {buildkite_url} not found in current jobs.")
                 continue
@@ -300,10 +303,10 @@ try:
             if job['type'] == 'script':
                 buildkite_url = job['web_url']
                 if buildkite_url in currentjobs:
-                    cancel_slurm_jobids.append(currentjobs[buildkite_url])
+                    cancel_slurm_jobids.extend(currentjobs[buildkite_url])
 
     # Cancel individually marked slurm jobs in one call
-    if len(cancel_slurm_jobids):
+    if cancel_slurm_jobids:
         logger.info(f"Canceling {len(cancel_slurm_jobids)} slurm  jobs")
 
         cmd = ['scancel', '--name=buildkite']
