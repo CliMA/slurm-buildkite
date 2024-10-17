@@ -205,7 +205,7 @@ try:
             # Create the directory prefix if it does not exist
             if not os.path.isdir(slurmlog_dir):
                 build_link = f"https://buildkite.com/clima/{sanitize_pipeline_name(pipeline_name)}/builds/{buildnum}"
-                logger.info(f"New build: pipeline: {pipeline_name} - {build_link}")
+                logger.info(f"New build: {pipeline_name} - {build_link}")
                 if not DEBUG:
                     os.mkdir(slurmlog_dir)
             
