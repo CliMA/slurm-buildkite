@@ -21,7 +21,7 @@ NHOURS = 96
 # setup root logger
 logger = logging.Logger('poll')
 handler = logging.StreamHandler()
-handler.setLevel(logging.DEBUG)
+handler.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - %(levelname)s: %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
@@ -143,6 +143,8 @@ try:
 
         currentjobs[buildkite_url] = slurm_job_id
 
+    if currentjobs:
+        logger.debug(f"Current jobs: {list(currentjobs.keys())}")
 
     logger.info(f"Current slurm jobs (submitted or started): {len(currentjobs)}")
 
@@ -183,14 +185,14 @@ try:
             # Cancel jobs marked by buildkite as 'canceled'
             if jobstate == 'canceled':
                 if buildkite_url in currentjobs:
-                    cancel_slurm_jobids.append(currentjobs[jobid])
+                    cancel_slurm_jobids.append(currentjobs[buildkite_url])
                 else:
                     logger.warning(f"Canceled job {buildkite_url} not found in current jobs.")
                 continue
 
             # jobstate is not pending, or a scheduled job (but not running yet)
             # is already submitted to slurm
-            if jobstate != 'scheduled' or jobid in currentjobs:
+            if jobstate != 'scheduled' or buildkite_url in currentjobs:
                 continue
 
             # Directory containing slurm logs for given build
@@ -295,9 +297,10 @@ try:
 
     for build in canceled_builds:
         for job in build['jobs']:
-            jobid = job['id']
-            if jobid in currentjobs:
-                cancel_slurm_jobids.append(currentjobs[jobid])
+            if job['type'] == 'script':
+                buildkite_url = job['web_url']
+                if buildkite_url in currentjobs:
+                    cancel_slurm_jobids.append(currentjobs[buildkite_url])
 
     # Cancel individually marked slurm jobs in one call
     if len(cancel_slurm_jobids):
