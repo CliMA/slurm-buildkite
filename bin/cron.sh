@@ -1,21 +1,20 @@
 #!/bin/bash
 source /etc/bashrc
 
-if [[ "$(hostname)" != "login1.cm.cluster" &&  "$(hostname)" != "login3.cm.cluster" ]]; then
-    exit 0
-fi
-
-export BUILDKITE_PATH="/groups/esm/slurm-buildkite"
-
-# To manage old and new at the same time, we define different queues and we run this
-# script on both login1 and login3
-if [[ "$(hostname)" == "login1.cm.cluster" ]]; then
-    # login1 is our legacy node
-    export BUILDKITE_QUEUE='central'
-else
-    # login3 is our new system
-    export BUILDKITE_QUEUE='new-central'
-fi
+case "$(hostname)" in
+    "login3.cm.cluster"|"login4.cm.cluster")
+        export BUILDKITE_PATH="/central/groups/esm/slurm-buildkite"
+        export BUILDKITE_QUEUE='new-central'
+        ;;
+    "clima.gps.caltech.edu")
+        export BUILDKITE_PATH="/clima/slurm-buildkite"
+        export BUILDKITE_QUEUE='clima'
+        ;;
+    *)
+        echo "Invalid hostname found, exiting..."
+        exit 1
+    ;;
+esac
 
 cd $BUILDKITE_PATH
 
