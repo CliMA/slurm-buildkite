@@ -12,7 +12,7 @@ df -h /tmp/
 # Remove tempdir
 case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
     "new-central")
-        pdsh -w $SLURM_NODELIST rm -rf "/tmp/slurm_${SLURM_JOB_ID}"
+        srun --ntasks-per-node=1 --ntasks=${SLURM_JOB_NUM_NODES} rm -rf "/tmp/slurm_${SLURM_JOB_ID}"
         ;;
     "clima")
         rm -rf "/tmp/slurm_${SLURM_JOB_ID}"
