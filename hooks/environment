@@ -50,6 +50,10 @@ case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
     "clima")
         mkdir -p "${TMPDIR}"
         ;;
+    "test")
+        mkdir -p "${TMPDIR}"
+        echo "--- Running on test queue"
+        ;;
     *)
         echo "Error: Unknown queue '$BUILDKITE_AGENT_META_DATA_QUEUE'. Exiting."
         exit 1

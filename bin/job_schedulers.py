@@ -1,30 +1,18 @@
 import subprocess
 import os
 import logging
-from os.path import join as joinpath, isfile
+from os.path import join as joinpath
+from buildkite import get_buildkite_job_tags, BUILDKITE_EXCLUDE_NODES, BUILDKITE_PATH
 
 DEFAULT_SCHEDULER = os.environ.get('JOB_SYSTEM', 'slurm')
 DEFAULT_TIMELIMIT = '1:05:00'
 
 # Map from buildkite queue to slurm partition
-DEFAULT_PARTITIONS = {"derecho": "preempt", "clima": "batch", "new-central": "expansion"}
-DEFAULT_GPU_PARTITIONS = {"derecho": "preempt", "clima": "batch", "new-central": "gpu"}
+DEFAULT_PARTITIONS = {"derecho": "preempt", "test": "batch", "clima": "batch", "new-central": "expansion"}
+DEFAULT_GPU_PARTITIONS = {"derecho": "preempt", "test": "batch", "clima": "batch", "new-central": "gpu"}
 
 # Map from buildkite queue to slurm reservation
 DEFAULT_RESERVATIONS = {"new-central": "clima"}
-
-# Sanitize a pipeline name to use it in a URL
-# Lowers and replaces any groups of non-alphanumeric character with a '-'
-def sanitize_pipeline_name(name):
-    return re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
-
-def build_url(pipeline_name, build_num):
-    return f"https://buildkite.com/clima/{sanitize_pipeline_name(pipeline_name)}/builds/{build_num}"
-
-def get_buildkite_job_tags(job):
-    agent_query_rules = job.get('agent_query_rules', [])
-    agent_query_rules = {item.split('=')[0]: item.split('=')[1] for item in agent_query_rules}
-    return agent_query_rules
 
 def gpu_is_requested(args, agent_query_rules):
     # Just find the word "gpu" in the tag or in its value. It might be a very
@@ -34,7 +22,7 @@ def gpu_is_requested(args, agent_query_rules):
     return gpu_in_args or gpu_in_values
 
 class JobScheduler:
-    def submit_job(self, agent_queue, log_dir, job):
+    def submit_job(self, logger, build_log_dir, job):
         raise NotImplementedError("Subclass must implement current_jobs")
 
     def cancel_jobs(self, job_ids):
@@ -58,24 +46,24 @@ class SlurmJobScheduler(JobScheduler):
         ]
         slurm_keys = {k: v for k, v in tags.items() if k.startswith('slurm_')}
         for key, value in slurm_keys.items():
-            cmd.extend(self.format_resource(key.split('slurm_', 1)[1], value))
+            cmd.append(self.format_resource(key, value))
 
         # Set partition depending on if a GPU has been requested
         # Fallback to 'default' if there is no default partition
-        agent_queue = tags['queue']
+        queue = tags['queue']
         if gpu_is_requested(slurm_keys, tags):
-            default_partition = DEFAULT_GPU_PARTITIONS[agent_queue]
+            default_partition = DEFAULT_GPU_PARTITIONS[queue]
         else:
-            default_partition = DEFAULT_PARTITIONS[agent_queue]
+            default_partition = DEFAULT_PARTITIONS[queue]
         agent_partition = tags.get('partition', default_partition)
         cmd.append(f"--partition={agent_partition}")
 
         # If the user does not give a reservation, try to use default
-        default_reservation = DEFAULT_RESERVATIONS.get(agent_queue, None)
+        default_reservation = DEFAULT_RESERVATIONS.get(queue, None)
         if "slurm_reservation" not in slurm_keys and default_reservation:
             cmd.append(f"--reservation={default_reservation}")
 
-        use_exclude = agent_query_rules.get('exclude', 'true')
+        use_exclude = tags.get('exclude', 'true')
         if use_exclude == 'true' and BUILDKITE_EXCLUDE_NODES:
             cmd.append(f"--exclude={BUILDKITE_EXCLUDE_NODES}")
 
@@ -85,9 +73,9 @@ class SlurmJobScheduler(JobScheduler):
         cmd.append(joinpath(BUILDKITE_PATH, 'bin/schedule_job.sh'))
         cmd.append(job_id)
 
-        agent_modules = tag.get('modules', "")
-        if agent_modules != "":
-            cmd.append(agent_modules)
+        modules = tags.get('modules', "")
+        if modules != "":
+            cmd.append(modules)
 
         logger.debug(f"Slurm command: {' '.join(cmd)}")
         ret = subprocess.run(cmd,
@@ -139,17 +127,18 @@ class SlurmJobScheduler(JobScheduler):
             if len(current_jobs[url]) > 1:
                 logger.warning(f"{url} has multiple slurmjobs: {current_jobs[url]})")
 
-        logger.debug(f"Current jobs: {list(currentjobs.keys())}")
+        logger.debug(f"Current jobs: {list(current_jobs.keys())}")
         logger.info(f"Current slurm jobs (submitted or started): {len(current_jobs)}")
 
         return current_jobs
 
-    def format_resource(key, value):
+    def format_resource(self, key, value):
+        key = key.split('slurm_', 1)[1].replace('_', '-')
         # If the value is 'true', we know this is a flag instead of an argument
         if value.lower() == 'true':
-            cmd.append(f"--{arg}")
+            return f"--{key}"
         else:
-            cmd.append(f"--{arg}={value}")
+            return f"--{key}={value}"
 
 
 import dbm
@@ -160,11 +149,11 @@ logger = logging.getLogger(__name__)
 DATABASE_FILE = "pbs_jobs.db"  # gnu dict database, maps from pbs jobid to buildkite job url
 
 class PBSJobScheduler(JobScheduler):
-    def submit_job(self, agent_queue, log_dir, job):
+    def submit_job(self, logger, build_log_dir, job):
         job_id = job['id']
         buildkite_url = job['web_url']
         tags = get_buildkite_job_tags(job)
-        
+        queue = tags['queue']
         logger.info(f"Preparing to submit job {job_id} to PBS queue")
         
         cmd = [
@@ -172,7 +161,7 @@ class PBSJobScheduler(JobScheduler):
             '-j', 'oe',
             '-N', 'buildkite',
             '-A', 'UCIT0011',
-            f'-o {joinpath(log_dir, "slurm-%j.log")}',
+            f'-o {joinpath(build_log_dir, "slurm-%j.log")}',
         ]
 
         pbs_keys = {k: v for k, v in tags.items() if k.startswith('pbs_')}
@@ -180,9 +169,9 @@ class PBSJobScheduler(JobScheduler):
             cmd.extend(self.format_resource(key.split('pbs_', 1)[1], value))
 
         if gpu_is_requested(pbs_keys, tags):
-            default_partition = DEFAULT_GPU_PARTITIONS.get(agent_queue, "default")
+            default_partition = DEFAULT_GPU_PARTITIONS.get(queue, "default")
         else:
-            default_partition = DEFAULT_PARTITIONS.get(agent_queue, "default")
+            default_partition = DEFAULT_PARTITIONS.get(queue, "default")
         
         agent_partition = tags.get('partition', default_partition)
         cmd.extend(["--partition", agent_partition])

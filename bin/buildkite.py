@@ -1,8 +1,9 @@
 import datetime
-from datetime import datetime, date, timedelta
+from datetime import datetime, timedelta
 import requests
 import os
-from os.path import join as joinpath
+import re
+from os.path import join as joinpath, isfile
 
 BUILDS_ENDPOINT = 'https://api.buildkite.com/v2/organizations/clima/builds'
 
@@ -13,6 +14,28 @@ BUILDKITE_API_TOKEN = os.environ.get(
 'BUILDKITE_API_TOKEN',
 open(joinpath(BUILDKITE_PATH,'.buildkite_token'), 'r').read().rstrip()
 )
+
+exclude_nodes_path = joinpath(BUILDKITE_PATH, '.exclude_nodes')
+# Check if the file exists and read its content, otherwise fallback to an empty string
+if isfile(exclude_nodes_path):
+    exclude_nodes_from_file = open(exclude_nodes_path, 'r').read().rstrip()
+else:
+    exclude_nodes_from_file = ''
+# Get the value from environment variable, or fallback to the file content or an empty string
+BUILDKITE_EXCLUDE_NODES = os.environ.get('BUILDKITE_EXCLUDE_NODES', exclude_nodes_from_file)
+
+def get_buildkite_job_tags(job):
+    agent_query_rules = job.get('agent_query_rules', [])
+    agent_query_rules = {item.split('=')[0]: item.split('=')[1] for item in agent_query_rules}
+    return agent_query_rules
+
+# Sanitize a pipeline name to use it in a URL
+# Lowers and replaces any groups of non-alphanumeric character with a '-'
+def sanitize_pipeline_name(name):
+    return re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
+
+def build_url(pipeline_name, build_num):
+    return f"https://buildkite.com/clima/{sanitize_pipeline_name(pipeline_name)}/builds/{build_num}"
 
 # we pick an nhour timedelta for the build window,
 # but it just needs to be more than that cron poll interval

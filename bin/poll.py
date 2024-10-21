@@ -2,10 +2,9 @@
 import datetime
 import logging
 import os
-import re
 import subprocess
+from buildkite import all_started_builds, all_canceled_builds, build_url, get_buildkite_job_tags, BUILDKITE_PATH, BUILDKITE_QUEUE, BUILDKITE_API_TOKEN
 import job_schedulers
-from buildkite import all_started_builds, all_canceled_builds, BUILDKITE_PATH, BUILDKITE_QUEUE, BUILDKITE_API_TOKEN
 
 from datetime import datetime, date, timedelta
 from os.path import join as joinpath, isfile
@@ -28,16 +27,6 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 try:
-    exclude_nodes_path = joinpath(BUILDKITE_PATH, '.exclude_nodes')
-    # Check if the file exists and read its content, otherwise fallback to an empty string
-    if isfile(exclude_nodes_path):
-        exclude_nodes_from_file = open(exclude_nodes_path, 'r').read().rstrip()
-    else:
-        exclude_nodes_from_file = ''
-
-    # Get the value from environment variable, or fallback to the file content or an empty string
-    BUILDKITE_EXCLUDE_NODES = os.environ.get('BUILDKITE_EXCLUDE_NODES', exclude_nodes_from_file)
-
     scheduler = job_schedulers.get_job_scheduler('slurm')
     current_jobs = scheduler.current_jobs(logger)
     # poll the buildkite API to check if there are any scheduled/running builds
@@ -73,8 +62,6 @@ try:
             if jobstate == 'canceled':
                 if buildkite_url in current_jobs:
                     jobs_to_cancel.extend(current_jobs[buildkite_url])
-                else:
-                    logger.warning(f"Canceled job {buildkite_url} not found in current jobs.")
                 continue
 
             # jobstate is not pending, or a scheduled job (but not running yet)
@@ -91,7 +78,7 @@ try:
             )
             # Create the directory prefix if it does not exist
             if not os.path.isdir(log_dir):
-                build_link = build_url((pipeline_name, build['number']))
+                build_link = build_url(pipeline_name, build['number'])
                 logger.info(f"New build: {pipeline_name} - {build_link}")
                 os.mkdir(log_dir)
             
@@ -107,7 +94,7 @@ try:
                 continue
             elif queue == BUILDKITE_QUEUE:
                 logger.info(f"New job on `{queue}`. Pipeline: {pipeline_name}, {buildkite_url}")
-                scheduler.submit_job(queue, log_dir, job)
+                scheduler.submit_job(logger, log_dir, job)
 
     # Cancel jobs in canceled builds
     canceled_builds = all_canceled_builds()
