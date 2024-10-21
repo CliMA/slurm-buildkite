@@ -14,151 +14,56 @@ set -euo pipefail # exit on failure or unset variable
 source /etc/profile.d/modules.sh
 
 export SLURM_BUILDKITE_PATH="$(dirname "${BUILDKITE_BIN_PATH}")"
+export GIT_SSH_COMMAND="ssh -i ${SLURM_BUILDKITE_PATH}/.ssh/id_rsa -o IdentitiesOnly=yes"
 export SHARED_DEPOT="${BUILDKITE_BUILD_PATH}/shared_depot"
-export GIT_SSH_COMMAND="ssh -i ${SLURM_BUILDKITE_PATH}/.ssh/id_rsa -o IdentitiesOnly=yes -o UserKnownHostsFile=${SLURM_BUILDKITE_PATH}/.ssh/known_hosts"
 export CI_BUILD_DIR="${BUILDKITE_BUILD_PATH}/${BUILDKITE_PIPELINE_SLUG}/${BUILDKITE_BUILD_NUMBER}"
+export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$CI_BUILD_DIR/depot/default}"
 export BUILDKITE_BUILD_CHECKOUT_PATH="${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
 export BUILDKITE_API_TOKEN=$(cat "${SLURM_BUILDKITE_PATH}/.buildkite_token")
-
-export TMPDIR="/tmp/slurm-${SLURM_JOB_ID}"
-srun --ntasks-per-node=1 --ntasks=${SLURM_JOB_NUM_NODES} mkdir -p "${TMPDIR}"
-printenv TMPDIR
-
-ulimit -c unlimited
 
 # Slurm Job Info
 echo "--- Slurm Job ID: ${SLURM_JOB_ID}"
 scontrol show job ${SLURM_JOB_ID} --details
 scontrol show node ${SLURM_JOB_NODELIST}
 
-if $(grep -q "Red Hat" /etc/redhat-release);  then
-    echo "We are on a RedHat 9 node"
+export TMPDIR="/tmp/slurm-${SLURM_JOB_ID}"
 
-    # We are on rhel9 nodes, we also want our modules
-    export MODULEPATH="/groups/esm/modules:$MODULEPATH"
+echo "--- Queue: $BUILDKITE_AGENT_META_DATA_QUEUE"
+echo "JULIA_DEPOT_PATH: $JULIA_DEPOT_PATH"
 
-    module load git/2.39.3-gcc-11.3.1-zfr3sti
-else
-    # We are on the CentOS nodes
-    module load git/2.26.0
-fi
+case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
+    "new-central")
+        echo "SLURM_NODELIST: $SLURM_NODELIST"
+    
+        if ! pdsh -w $SLURM_NODELIST mkdir -p "${TMPDIR}"; then
+            echo "Warning: pdsh failed to create directory. Falling back to srun."
+            srun --ntasks-per-node=1 --ntasks=${SLURM_JOB_NUM_NODES} mkdir -p "${TMPDIR}"
+        fi
+    
+    # Check if TMPDIR was created
+        if ! srun --ntasks-per-node=1 --ntasks=${SLURM_JOB_NUM_NODES} test -d "${TMPDIR}"; then
+            echo "Error: Failed to create $TMPDIR"
+            exit 1
+        fi
+        source "${SLURM_BUILDKITE_PATH}/cluster_environments/caltech_hpc.sh"
+        ;;
+    "clima")
+        mkdir -p "${TMPDIR}"
+        ;;
+    *)
+        echo "Error: Unknown queue '$BUILDKITE_AGENT_META_DATA_QUEUE'. Exiting."
+        exit 1
+        ;;
+esac
 
+ulimit -c unlimited
+printenv TMPDIR
+
+# Load modules after sourcing cluster-specific environment
+module load ${BUILDKITE_AGENT_META_DATA_MODULES:-}
 
 # this is set to avoid rare race conditions on the same node with concurrent (step) jobs
 export OMPI_MCA_orte_tmpdir_base="$TMPDIR"
-
-case "${BUILDKITE_AGENT_META_DATA_CONFIG}" in
-    # standard configurations
-   ""|default)
-        module load ${BUILDKITE_AGENT_META_DATA_MODULES:-}
-        export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$CI_BUILD_DIR/depot/default}:${SHARED_DEPOT}"
-        ;;
-
-    init)
-        echo "--- init env configuration"
-        ;;
-
-    cpu)
-        echo "--- cpu env configuration"
-        module load singularity/3.5.2
-        module load python3/${PYTHON_VERSION:=3.8.5}
-        module load julia/${JULIA_VERSION:=1.10.0}
-        if [ "${MPI_IMPL:=mpich}" == "mpich" ]; then
-            module load mpich/${MPICH_VERSION:=4.0.0} hdf5/1.12.1 netcdf-c/4.8.1
-        else
-            module load openmpi/${OPENMPI_VERSION:=4.1.1}
-            if [ "${OPENMPI_VERSION:=4.1.1}" == "4.1.1" ]; then
-                module load hdf5/1.12.1-ompi411
-            else
-                module load hdf5/1.12.1
-            fi
-        fi
-
-        export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:=$CI_BUILD_DIR/depot/cpu}"
-        export JULIA_CUDA_USE_BINARYBUILDER=false
-        export JULIA_MPI_BINARY=system
-        export JULIA_HDF5_PATH=""
-
-        # this is set to not use shared memory segments as a btl transport
-        # they do not get cleaned up on the cluster
-        # export OMPI_MCA_btl="self,tcp"
-        export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
-
-        echo "--- slurm job configuration"
-        sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,nnodes,nodelist
-        ;;
-
-    cpu-test)
-        echo "--- cpu test env configuration"
-        module load singularity/3.5.2
-        module load python3/${PYTHON_VERSION:=3.8.5}
-        module load julia/${JULIA_VERSION:=1.10.0}
-        if [ "${MPI_IMPL:=mpich}" == "mpich" ]; then
-            module load mpich/${MPICH_VERSION:=4.0.0} hdf5/1.12.1 netcdf-c/4.8.1
-        else
-            module load openmpi/${OPENMPI_VERSION:=4.1.1} hdf5/1.12.1-ompi411
-        fi
-
-        export JULIA_DEPOT_PATH:="${CI_BUILD_DIR}/depot/cpu"
-        export JULIA_CUDA_USE_BINARYBUILDER=false
-        export JULIA_MPI_BINARY=system
-        export JULIA_HDF5_PATH=""
-
-        # export OMPI_MCA_btl="self,tcp"
-        export OMPI_MCA_orte_tmpdir_base="/tmp/slurm-buildkite/${BUILDKITE_STEP_KEY}"
-        export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
-
-        echo "--- slurm job configuration"
-        sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,nnodes,nodelist
-        ;;
-
-    gpu)
-        echo "--- gpu env configuration"
-        module load singularity/3.5.2
-        module load python3/${PYTHON_VERSION:=3.8.5}
-        module load julia/${JULIA_VERSION:=1.10.0}
-        module load cuda/${CUDA_VERSION:=12.2} openmpi/${OPENMPI_VERSION:=4.0.4}_cuda-${CUDA_VERSION:=12.2} hdf5/1.10.1 netcdf-c/4.6.1
-
-        export JULIA_DEPOT_PATH="${JUIA_DEPOT_PATH:=$CI_BUILD_DIR/depot/gpu}"
-        export JULIA_CUDA_USE_BINARYBUILDER=false
-        export JULIA_MPI_BINARY=system
-
-        # export OMPI_MCA_btl="self,tcp"
-        export OMPI_MCA_orte_tmpdir_base="/tmp/slurm-buildkite/${BUILDKITE_STEP_KEY}"
-        export CLIMATEMACHINE_SETTINGS_OUTPUT_DIR="${CI_BUILD_DIR}/output/${BUILDKITE_STEP_KEY}"
-
-        echo "--- slurm job configuration"
-        sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,nnodes,nodelist
-
-        echo "--- gpu device configuration"
-        nvidia-smi -q
-        ;;
-
-    gpu-test)
-        echo "--- gpu test env configuration"
-        module load singularity/3.5.2
-        module load python3/${PYTHON_VERSION:=3.8.5}
-        module load julia/${JULIA_VERSION:=1.10.0}
-        module load cuda/${CUDA_VERSION:=12.2} openmpi/${OPENMPI_VERSION:=4.0.4}_cuda-${CUDA_VERSION:=12.2} hdf5/1.10.1 netcdf-c/4.6.1
-
-        export JULIA_DEPOT_PATH="${CI_BUILD_DIR}/depot/gpu"
-        export JULIA_CUDA_USE_BINARYBUILDER=false
-        export JULIA_MPI_BINARY=system
-
-        # export OMPI_MCA_btl="self,tcp"
-        export OMPI_MCA_orte_tmpdir_base="/tmp/slurm-buildkite/${BUILDKITE_STEP_KEY}"
-
-        echo "--- slurm job configuration"
-        sacct -a -X -j ${SLURM_JOB_ID} --format=JobID,AllocCPUs,nnodes,nodelist
-
-        echo "--- gpu test device configuration"
-        nvidia-smi -q
-        ;;
-
-    *)
-        echo "agent config must init, cpu or gpu"
-        ;;
-esac
 
 # From https://stackoverflow.com/a/51141872, to remove colors from modules
 # (Color tags mess up the builkite log)
@@ -171,9 +76,32 @@ if [ -n "${SLURM_GPUS_ON_NODE:-}" ]; then
     nvidia-smi -L
 fi
 
-# Add pipeline specific ENV variables
-if [ "$BUILDKITE_PIPELINE_NAME" == "ClimateMachine-Docs" ]; then
-    export DOCUMENTER_KEY=$(cat "$BUILDKITE_PATH/.climatemachine_documenter_key")
+log_missing_file() {
+    echo "Warning: File $1 not found."
+}
+
+if [ "$BUILDKITE_PIPELINE_NAME" == "ClimaOcean-examples" ]; then
+    if [ -f "$BUILDKITE_PATH/.climaocean_documenter" ]; then
+        export DOCUMENTER_KEY=$(cat "$BUILDKITE_PATH/.climaocean_documenter")
+    else
+        log_missing_file "$BUILDKITE_PATH/.climaocean_documenter"
+    fi
 fi
 
-export SLACK_TOKEN=$(cat "$BUILDKITE_PATH/.slack_token")
+if [ -f "$BUILDKITE_PATH/.slack_token" ]; then
+    export SLACK_TOKEN=$(cat "$BUILDKITE_PATH/.slack_token")
+else
+    log_missing_file "$BUILDKITE_PATH/.slack_token"
+fi
+
+if [ -f "$BUILDKITE_PATH/.ecco_username" ]; then
+    export ECCO_USERNAME=$(cat "$BUILDKITE_PATH/.ecco_username")
+else
+    log_missing_file "$BUILDKITE_PATH/.ecco_username"
+fi
+
+if [ -f "$BUILDKITE_PATH/.ecco_password" ]; then
+    export ECCO_PASSWORD=$(cat "$BUILDKITE_PATH/.ecco_password")
+else
+    log_missing_file "$BUILDKITE_PATH/.ecco_password"
+fi
