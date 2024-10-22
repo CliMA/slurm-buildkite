@@ -26,8 +26,13 @@ BUILDKITE_EXCLUDE_NODES = os.environ.get('BUILDKITE_EXCLUDE_NODES', exclude_node
 
 def get_buildkite_job_tags(job):
     agent_query_rules = job.get('agent_query_rules', [])
-    agent_query_rules = {item.split('=')[0]: item.split('=')[1] for item in agent_query_rules}
-    return agent_query_rules
+    tag_dict = {}
+    for item in agent_query_rules:
+        if '=' in item:
+            key, value = item.split('=', 1)  # Split on first '=' only
+            tag_dict[key] = value
+    
+    return tag_dict
 
 # Sanitize a pipeline name to use it in a URL
 # Lowers and replaces any groups of non-alphanumeric character with a '-'

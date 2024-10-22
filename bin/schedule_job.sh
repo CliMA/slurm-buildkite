@@ -11,7 +11,9 @@ if [ $# -ge 2 ]; then
     TAGS="$TAGS,modules=$2"
 fi
 
-bin/buildkite-agent start \
+ls -l "${BUILDKITE_PATH}/bin/buildkite-agent"
+
+"${BUILDKITE_PATH}/bin/buildkite-agent" start \
   --name "$BUILDKITE_QUEUE-$1-%n" \
   --config "${BUILDKITE_PATH}/buildkite-agent.cfg" \
   --acquire-job "$1" \
