@@ -1,25 +1,24 @@
 import subprocess
 import os
-import logging
+import dbm
 from os.path import join as joinpath
+import re
 from buildkite import get_buildkite_job_tags, BUILDKITE_EXCLUDE_NODES, BUILDKITE_PATH
 
 DEFAULT_SCHEDULER = os.environ.get('JOB_SYSTEM', 'slurm')
 DEFAULT_TIMELIMIT = '1:05:00'
 
-# Map from buildkite queue to slurm partition
+# Map from buildkite queue to slurm partition or PBS queue
 DEFAULT_PARTITIONS = {"derecho": "preempt", "test": "batch", "clima": "batch", "new-central": "expansion"}
 DEFAULT_GPU_PARTITIONS = {"derecho": "preempt", "test": "batch", "clima": "batch", "new-central": "gpu"}
 
-# Map from buildkite queue to slurm reservation
-DEFAULT_RESERVATIONS = {"new-central": "clima"}
+# Map from buildkite queue to HPC reservation
+DEFAULT_RESERVATIONS = {"new-central": "clima", "derecho": "UCIT0011"}
 
-def gpu_is_requested(args, agent_query_rules):
-    # Just find the word "gpu" in the tag or in its value. It might be a very
-    # wide filter...
-    gpu_in_args = any("gpu" in s for s in args)
-    gpu_in_values = any("gpu" in agent_query_rules[key] for key in args)
-    return gpu_in_args or gpu_in_values
+# Search for the word "gpu" in the given dict
+def gpu_is_requested(scheduler_tags):
+    found = any("gpu" in key or "gpu" in value for key, value in scheduler_tags.items())
+    return found
 
 class JobScheduler:
     def submit_job(self, logger, build_log_dir, job):
@@ -51,7 +50,7 @@ class SlurmJobScheduler(JobScheduler):
         # Set partition depending on if a GPU has been requested
         # Fallback to 'default' if there is no default partition
         queue = tags['queue']
-        if gpu_is_requested(slurm_keys, tags):
+        if gpu_is_requested(slurm_keys):
             default_partition = DEFAULT_GPU_PARTITIONS[queue]
         else:
             default_partition = DEFAULT_PARTITIONS[queue]
@@ -78,37 +77,48 @@ class SlurmJobScheduler(JobScheduler):
             cmd.append(modules)
 
         logger.debug(f"Slurm command: {' '.join(cmd)}")
-        ret = subprocess.run(cmd,
+        try:
+            result = subprocess.run(
+                cmd,
+                check=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                universal_newlines=True)
-
-        if ret.returncode != 0:
-            # TODO: Run a minimal failing slurm job to return the error to buildkite
-            logger.error(
-                f"Slurm error during job submission, retcode={ret.returncode}: "
-                f"\n{ret.stderr}"
+                universal_newlines=True
             )
-        else:
-            slurm_job_id = int(ret.stdout)
+            slurm_job_id = int(result.stdout)
             log_path = joinpath(build_log_dir, f'slurm-{slurm_job_id}.log')
             logger.info(f"Slurm job submitted, ID: {slurm_job_id}, log: {log_path}")
 
+        except subprocess.CalledProcessError as e:
+            # TODO: Run a minimal failing slurm job to return the error to buildkite
+            logger.error(
+                f"Slurm error during job submission, retcode={e.returncode}:\n{e.stderr}"
+            )
+        except ValueError as e:
+            # Handle case where stdout can't be converted to int
+            logger.error(
+                f"Invalid job ID returned from Slurm: {result.stdout!r}"
+            )
+            
     def cancel_jobs(self, logger, job_ids):
         cmd = ['scancel', '--name=buildkite']
         cmd.extend(job_ids)
-        ret = subprocess.run(cmd,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                                universal_newlines=True)
-        if ret.returncode != 0:
-            logger.error(
-                f"Slurm error when canceling jobs, retcode={ret.returncode}: "
-                f"\n{ret.stderr}"
+        try:
+            logger.info(f"Canceling {len(job_ids)} Slurm jobs")
+            subprocess.run(
+                cmd,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True
             )
-        else:
-            logger.info(f"Canceling {len(job_ids)} slurm jobs")
-            logger.debug(f"Canceled slurm jobs: {job_ids}")
+            logger.debug(f"Canceled Slurm jobs: {job_ids}")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Error when canceling Slurm jobs: {e}")
+            logger.error(f"Command: {e.cmd}")
+            logger.error(f"Return code: {e.returncode}")
+            logger.error(f"stdout: {e.stdout}")
+            logger.error(f"stderr: {e.stderr}")
 
     def current_jobs(self, logger):
         squeue = subprocess.run(['squeue',
@@ -140,12 +150,6 @@ class SlurmJobScheduler(JobScheduler):
         else:
             return f"--{key}={value}"
 
-
-import dbm
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
 DATABASE_FILE = "pbs_jobs.db"  # gnu dict database, maps from pbs jobid to buildkite job url
 
 class PBSJobScheduler(JobScheduler):
@@ -153,33 +157,36 @@ class PBSJobScheduler(JobScheduler):
         job_id = job['id']
         buildkite_url = job['web_url']
         tags = get_buildkite_job_tags(job)
-        queue = tags['queue']
-        logger.info(f"Preparing to submit job {job_id} to PBS queue")
+        buildkite_queue = tags['queue']
+        logger.debug(f"Preparing to submit job {job_id} to PBS queue")
         
         cmd = [
             'qsub',
             '-j', 'oe',
             '-N', 'buildkite',
-            '-A', 'UCIT0011',
+            # TODO: Figure out how to log properly,
+            # slurm-style variable interpolation will not work
             f'-o {joinpath(build_log_dir, "slurm-%j.log")}',
         ]
 
-        pbs_keys = {k: v for k, v in tags.items() if k.startswith('pbs_')}
-        for key, value in pbs_keys.items():
+        pbs_tags = {k: v for k, v in tags.items() if k.startswith('pbs_')}
+        for key, value in pbs_tags.items():
             cmd.extend(self.format_resource(key.split('pbs_', 1)[1], value))
 
-        if gpu_is_requested(pbs_keys, tags):
-            default_partition = DEFAULT_GPU_PARTITIONS.get(queue, "default")
-        else:
-            default_partition = DEFAULT_PARTITIONS.get(queue, "default")
-        
-        agent_partition = tags.get('partition', default_partition)
-        cmd.extend(["--partition", agent_partition])
+        default_reservation = DEFAULT_RESERVATIONS.get(buildkite_queue, None)
+        if "pbs_A" not in pbs_tags and default_reservation:
+            cmd.extend(["-A", default_reservation])
+
+        if 'pbs_q' not in pbs_tags:
+            if gpu_is_requested(pbs_tags):
+                default_pbs_queue = DEFAULT_GPU_PARTITIONS[buildkite_queue]
+            else:
+                default_pbs_queue = DEFAULT_PARTITIONS[buildkite_queue]
+            cmd.extend(["-q", default_pbs_queue])
 
         cmd.extend([joinpath(BUILDKITE_PATH, 'bin/schedule_job.sh'), job_id])
 
         logger.debug(f"Submitting PBS job with command: {' '.join(cmd)}")
-
         try:
             ret = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         except subprocess.CalledProcessError as e:
@@ -245,20 +252,7 @@ class PBSJobScheduler(JobScheduler):
         qsub_jobs = re.split(r'\n\n(?=Job Id:)', qstat_output)
         active_jobs = {}
 
-        for job in qsub_jobs:
-            job_id_match = re.search(r'Job Id: (\S+)', job)
-            if job_id_match:
-                job_id = job_id_match.group(1)
-                if job_id in current_jobs:
-                    active_jobs[job_id] = current_jobs[job_id]
-                else:
-                    logger.info(f"Found new job in PBS queue: {job_id}")
-                    active_jobs[job_id] = "Unknown URL"
-                    try:
-                        with dbm.gnu.open(DATABASE_FILE, 'w') as db:
-                            db[job_id] = active_jobs[job_id]
-                    except dbm.error as e:
-                        logger.error(f"Failed to add new job {job_id} to database: {e}")
+        # TODO: Rethink how this loop will work...
 
         try:
             with dbm.gnu.open(DATABASE_FILE, 'w') as db:

@@ -1,19 +1,12 @@
 #!/usr/bin/env python3
-import datetime
 import logging
 import os
-import subprocess
-from buildkite import all_started_builds, all_canceled_builds, build_url, get_buildkite_job_tags, BUILDKITE_PATH, BUILDKITE_QUEUE, BUILDKITE_API_TOKEN
+from datetime import date
+from os.path import join as joinpath
+
+from buildkite import all_started_builds, all_canceled_builds, build_url
+from buildkite import get_buildkite_job_tags, BUILDKITE_PATH, BUILDKITE_QUEUE
 import job_schedulers
-
-from datetime import datetime, date, timedelta
-from os.path import join as joinpath, isfile
-
-# debug flag, set this to true to get log output
-# of state change transitions but do not actually
-# submit the slurm commands on the cluster
-
-# If DEBUG_SLURM_BUILDKITE is set, we are in the Debug mode
 
 # Time window to query buildkite jobs
 NHOURS = 96
@@ -21,6 +14,7 @@ NHOURS = 96
 # setup root logger
 logger = logging.Logger('poll')
 handler = logging.StreamHandler()
+# For debug statements: handler.setLevel(logging.DEBUG)
 handler.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - %(levelname)s: %(message)s')
 handler.setFormatter(formatter)
@@ -76,24 +70,22 @@ try:
                 f'{date.today()}',
                 f"build_{build['id']}",
             )
+
+            job_tags = get_buildkite_job_tags(job)
+            queue = job_tags.get('queue', None)
+
             # Create the directory prefix if it does not exist
             if not os.path.isdir(log_dir):
                 build_link = build_url(pipeline_name, build['number'])
-                logger.info(f"New build: {pipeline_name} - {build_link}")
+                logger.info(f"New build on `{queue}`: {pipeline_name} - {build_link}")
                 os.mkdir(log_dir)
-            
-            # The comment section is used to scan jobids and ensure we are not
-            # submitting multiple copies of the same job. This happens at the
-            # beginning of the try-catch, in the squeue command.
-            job_tags = get_buildkite_job_tags(job)
-            queue = job_tags.get('queue', None)
 
             # Only log jobs on current queue unless debugging or missing queue
             if queue is None:
                 logger.error(f"New job missing queue. Pipeline: {pipeline_name}, {buildkite_url}")
                 continue
             elif queue == BUILDKITE_QUEUE:
-                logger.info(f"New job on `{queue}`. Pipeline: {pipeline_name}, {buildkite_url}")
+                logger.info(f"New job: {pipeline_name}, {buildkite_url}")
                 scheduler.submit_job(logger, log_dir, job)
 
     # Cancel jobs in canceled builds
