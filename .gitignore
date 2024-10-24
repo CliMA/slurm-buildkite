@@ -9,3 +9,5 @@ logs/
 builds/
 depot/
 hooks/*.sample
+bin/__pycache__/*
+pbs_jobs.db
