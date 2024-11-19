@@ -1,7 +1,7 @@
 #!/bin/bash
 
 case "$(hostname)" in
-    "login3.cm.cluster"|"login4.cm.cluster")
+    "login3.cm.cluster")
         export BUILDKITE_PATH="/central/groups/esm/slurm-buildkite"
         export BUILDKITE_QUEUE='new-central'
         ;;

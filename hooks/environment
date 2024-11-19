@@ -83,7 +83,7 @@ log_missing_file() {
     echo "Warning: File $1 not found."
 }
 
-if [ "$BUILDKITE_PIPELINE_NAME" == "ClimaOcean-examples" ]; then
+if [[ "${BUILDKITE_PIPELINE_NAME,,}" == *"climaocean"* ]]; then
     if [ -f "$BUILDKITE_PATH/.climaocean_documenter" ]; then
         export DOCUMENTER_KEY=$(cat "$BUILDKITE_PATH/.climaocean_documenter")
     else
