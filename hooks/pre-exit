@@ -17,4 +17,10 @@ case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
     "clima")
         rm -rf "/tmp/slurm_${SLURM_JOB_ID}"
         ;;
+    "derecho")
+        pbsdsh -- rm -rf "$TMPDIR"
+        ;;
+    "test")
+        rm -rf "/tmp/slurm_${SLURM_JOB_ID}"
+        ;;
 esac
