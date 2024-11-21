@@ -107,17 +107,17 @@ class SlurmJobScheduler(JobScheduler):
             
     def cancel_jobs(self, logger, job_ids):
         cmd = ['scancel', '--name=buildkite']
-        cmd.extend(job_ids)
+        # Flatten list of lists
+        cmd.extend([x for sublist in job_ids for x in sublist])
         try:
             logger.info(f"Canceling {len(job_ids)} Slurm jobs")
+            logger.debug(cmd)
             subprocess.run(
                 cmd,
                 check=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                universal_newlines=True
-            )
-            logger.debug(f"Canceled Slurm jobs: {job_ids}")
+                universal_newlines=True)
         except subprocess.CalledProcessError as e:
             logger.error(f"Error when canceling Slurm jobs: {' '.join(e.cmd)}")
             logger.error(f"Return code: {e.returncode}")
