@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 
-set -xe
+set -x
 
 case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
     "new-central")
