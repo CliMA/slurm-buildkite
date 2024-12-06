@@ -1,75 +1,46 @@
 agents:
-  queue: new-central
-  modules: climacommon/2024_03_18
-
+  queue: clima
 steps:
 
-  - label: "instantiate Julia projects"
-    key: "init"
+  - label: "Test on derecho"
     command:
-      - make
-      - julia --project=.ci -e 'using Pkg; Pkg.instantiate()'
-
-  - wait
-
-  - label: "Print only rank 0"
-    key: "print"
-    command:
-      - ": > print-out-0.log && tail -F print-out-0.log &" # print log in background
-      - srun --output=print-out-%t.log printenv PMI_RANK
-      - sleep 1
+      - julia --project=.buildkite -e 'using Pkg; Pkg.instantiate()'
+      - mpiwrapperexec -n 2 set_gpu_rank nsys profile --trace=nvtx,cuda,mpi --output=report_%q{PMI_RANK} --force-overwrite true julia --project=.buildkite .buildkite/test_cuda_mpi.jl
+      - nsys stats --report cuda_gpu_trace report_0.nsys-rep --force-export true
+      - nsys stats --report cuda_gpu_trace report_0.nsys-rep --force-export true | grep -E "memcpy (Peer-to-Peer|PtoP)"
     agents:
-      slurm_ntasks_per_node: 2
-      slurm_nodes: 2
-      slurm_time: 00:05:00
-    artifact_paths:
-      - "print-out-*.log"
+      queue: derecho
+      pbs_l_select: "1:ngpus=2:ncpus=64"
+      pbs_l_walltime: "00:10:00"
+      pbs_q: develop
+      modules: climacommon/2024_10_09
 
-  - label: "HDF5 memory profile"
-    key: "hdf5-mem-profile"
+  - label: "Test on clima"
     command:
-      - srun --profile=task --acctg-freq=10 julia -e 'X = ones(UInt8, 1024^3); sleep(60); println(sum(X))' # allocate 1GB
-      - sh5util -j $$SLURM_JOB_ID
-      - sh5util -j $$SLURM_JOB_ID -E --series=Tasks -l Node:TimeSeries
-    artifact_paths:
-      - "job_*.h5"
-      - "extract_*.csv"
+      - julia --project=.buildkite -e 'using Pkg; Pkg.instantiate()'
+      - srun nsys profile --trace=nvtx,cuda,mpi --output=report_%q{PMI_RANK} --force-overwrite true julia --project=.buildkite .buildkite/test_cuda_mpi.jl
+      - nsys stats --report cuda_gpu_trace report_0.nsys-rep --force-export true
+      - nsys stats --report cuda_gpu_trace report_0.nsys-rep --force-export true | grep -E "memcpy (Peer-to-Peer|PtoP)"
     agents:
-      slurm_ntasks_per_node: 3
-      slurm_mem_per_cpu: 4G
-      slurm_time: 00:05:00
+      queue: clima
+      slurm_ntasks: 2
+      slurm_gpus_per_task: 1
+      slurm_cpus_per_task: 4
+      slurm_time: "00:10:00"
+      modules: climacommon/2024_10_09
 
-
-  - label: "Nsight - single node profile"
-    key: "nsys-single"
+  - label: "Test on new-central"
     command:
-      - nsys profile --output=report-single --trace=mpi --mpi-impl=openmpi srun julia --project=.ci .ci/mpi.jl
-    artifact_paths:
-      - "report-single.nsys-rep"
+      - julia --project=.buildkite -e 'using Pkg; Pkg.instantiate()'
+      # Using srun crashes upon MPI.jl initialization
+      - mpirun -n 2 nsys profile --trace=cuda,mpi --mpi-impl=openmpi --force-overwrite true julia --project=.buildkite .buildkite/test_cuda_mpi.jl
+      - nsys stats --report cuda_gpu_trace report1.nsys-rep --force-export true
+      - nsys stats --report cuda_gpu_trace report1.nsys-rep --force-export true | grep -E "memcpy (Peer-to-Peer|PtoP)"
     agents:
-      slurm_ntasks_per_node: 3
-      slurm_time: 00:05:00
-
-  - label: "Nsight - multi node profile"
-    key: "nsys-multi"
-    command:
-      - mkdir -p nsys-multi
-      - srun --cpu-bind=cores nsys profile --output=nsys-multi/report-%q{PMI_RANK} --trace=mpi --mpi-impl=openmpi julia --project=.ci .ci/mpi.jl
-      - bin/nsys-mkview nsys-multi
-      - bin/nsys-archive nsys-multi
-    artifact_paths:
-      - nsys-multi/nsys.tar.gz
-    agents:
-      slurm_cpus_per_task: 2
-      slurm_ntasks_per_node: 2
-      slurm_nodes: 2
-      slurm_time: 00:05:00
-
-  - wait
-
-  - label: "Build history"
-    command:
-      - bin/build_history master
-      - bin/slack-message -c "#slurm-buildkite-testing" -x "hello from $$BUILDKITE_BUILD_URL"
-    artifact_paths:
-      - "build_history.html"
+      queue: new-central
+      slurm_ntasks: 2
+      slurm_gpus_per_task: 1
+      slurm_cpus_per_task: 4
+      slurm_time: "00:10:00"
+      modules: climacommon/2024_10_09
+    soft_fail: true
