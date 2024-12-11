@@ -109,9 +109,10 @@ class SlurmJobScheduler(JobScheduler):
                 f'--comment={buildkite_url}',
                 f"--output={joinpath(build_log_dir, 'slurm-%j.log')}",
             ]
-
-            error_cmd.append(joinpath(BUILDKITE_PATH, 'bin/report_error.sh'))
+            # re-run job while passing error message as argument so it can be sent to buildkite
+            error_cmd.append(joinpath(BUILDKITE_PATH, 'bin/schedule_job.sh'))
             error_cmd.append(job_id)
+            error_cmd.append("")
             error_cmd.append(e.stderr)
             try:
                 subprocess.run(
