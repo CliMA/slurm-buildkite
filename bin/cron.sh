@@ -6,8 +6,8 @@ case "$(hostname)" in
         export BUILDKITE_QUEUE='new-central'
         ;;
     "clima.gps.caltech.edu")
-        export BUILDKITE_PATH="/clima/slurm-buildkite"
-        export BUILDKITE_QUEUE='clima'
+        export BUILDKITE_PATH="/home/treddy/slurm-buildkite"
+        export BUILDKITE_QUEUE='test'
         ;;
     # TODO: Figure out a way to avoid collisions with hostnames like "cron"
     # `hostname -f` on Derecho does not help
