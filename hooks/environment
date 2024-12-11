@@ -17,6 +17,13 @@ export CI_BUILD_DIR="${BUILDKITE_BUILD_PATH}/${BUILDKITE_PIPELINE_SLUG}/${BUILDK
 export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$CI_BUILD_DIR/depot/default}"
 export BUILDKITE_BUILD_CHECKOUT_PATH="${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
 
+# Report error if it exists
+if [ ! -z "${BUILDKITE_AGENT_META_DATA_ERROR+x}" ]; then
+    echo "--- Job submission error"
+    echo "error message: ${BUILDKITE_AGENT_META_DATA_ERROR}"
+    exit 1
+fi
+
 # Slurm Job Info
 
 if [ "$BUILDKITE_AGENT_META_DATA_QUEUE" != "derecho" ]; then

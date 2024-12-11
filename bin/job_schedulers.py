@@ -99,12 +99,31 @@ class SlurmJobScheduler(JobScheduler):
             logger.error(
                 f"Slurm error during job submission, retcode={e.returncode}:\n{e.stderr}"
             )
-        except ValueError as e:
-            # Handle case where stdout can't be converted to int
-            logger.error(
-                f"Invalid job ID returned from Slurm: {result.stdout!r}"
-            )
-            
+
+            error_cmd = [
+                'sbatch',
+                '--parsable',
+                "--job-name=bk_error",
+                "--time=00:01:00",
+                "--ntasks=1",
+                f'--comment={buildkite_url}',
+                f"--output={joinpath(build_log_dir, 'slurm-%j.log')}",
+            ]
+
+            error_cmd.append(joinpath(BUILDKITE_PATH, 'bin/report_error.sh'))
+            error_cmd.append(job_id)
+            error_cmd.append(e.stderr)
+            try:
+                subprocess.run(
+                    error_cmd,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True
+                )
+            except:
+                logger.error("Failed to submit error job to Slurm")
+
     def cancel_jobs(self, logger, job_ids):
         cmd = ['scancel', '--name=buildkite']
         # Flatten list of lists
