@@ -29,6 +29,7 @@ agents:
   queue: new-central
   slurm_nodes: 1
   slurm_tasks_per_node: 2
+  slurm_exclusive: true
 ```
 would pass the options `--nodes=1 --tasks-per-node=2`.
 
