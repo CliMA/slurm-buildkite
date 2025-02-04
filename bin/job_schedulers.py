@@ -15,8 +15,8 @@ DEFAULT_PARTITIONS = {"derecho": "preempt@desched1", "test": "batch", "clima": "
 DEFAULT_GPU_PARTITIONS = {"derecho": "preempt@desched1", "test": "batch", "clima": "batch", "new-central": "gpu"}
 
 # Map from buildkite queue to HPC reservation
-DEFAULT_RESERVATIONS = {"new-central": "clima", "derecho": "UCIT0011"}
-
+DEFAULT_RESERVATIONS = {"new-central": "clima_cpu", "derecho": "UCIT0011"}
+DEFAULT_GPU_RESERVATIONS = {"new-central": "clima", "derecho": "UCIT0011"}
 # Map from buildkite queue to PBS server
 DEFAULT_PBS_SERVERS = {"derecho": "desched1"}
 
@@ -40,7 +40,7 @@ class SlurmJobScheduler(JobScheduler):
         job_id = job['id']
         buildkite_url = job['web_url']
         tags = get_buildkite_job_tags(job)
-
+        queue = tags['queue']
         cmd = [
             'sbatch',
             '--parsable',
@@ -49,23 +49,29 @@ class SlurmJobScheduler(JobScheduler):
             f"--output={joinpath(build_log_dir, 'slurm-%j.log')}",
         ]
         slurm_keys = {k: v for k, v in tags.items() if k.startswith('slurm_')}
+
+        # No reservation, add default
+        if 'slurm_reservation' not in slurm_keys:
+            if gpu_is_requested(slurm_keys):        
+                slurm_keys['slurm_reservation'] = DEFAULT_GPU_RESERVATIONS[queue]
+            else:
+                slurm_keys['slurm_reservation'] = DEFAULT_RESERVATIONS[queue]
+        # Key exists and reservation == false, remove reservation
+        elif slurm_keys['slurm_reservation'].lower() == "false":
+            del slurm_keys['slurm_reservation']
+
         for key, value in slurm_keys.items():
             cmd.append(self.format_resource(key, value))
 
         # Set partition depending on if a GPU has been requested
         # Fallback to 'default' if there is no default partition
-        queue = tags['queue']
         if gpu_is_requested(slurm_keys):
             default_partition = DEFAULT_GPU_PARTITIONS[queue]
         else:
             default_partition = DEFAULT_PARTITIONS[queue]
+
         agent_partition = tags.get('partition', default_partition)
         cmd.append(f"--partition={agent_partition}")
-
-        # If the user does not give a reservation, try to use default
-        default_reservation = DEFAULT_RESERVATIONS.get(queue, None)
-        if "slurm_reservation" not in slurm_keys and default_reservation:
-            cmd.append(f"--reservation={default_reservation}")
 
         use_exclude = tags.get('exclude', 'true')
         if use_exclude == 'true' and BUILDKITE_EXCLUDE_NODES:
@@ -109,6 +115,10 @@ class SlurmJobScheduler(JobScheduler):
                 f'--comment={buildkite_url}',
                 f"--output={joinpath(build_log_dir, 'slurm-%j.log')}",
             ]
+            
+            default_reservation = DEFAULT_RESERVATIONS.get(buildkite_queue, None)
+            if default_reservation:
+                error_cmd.append("--reservation={default_reservation}")
             # re-run job while passing error message as argument so it can be sent to buildkite
             error_cmd.append(joinpath(BUILDKITE_PATH, 'bin/schedule_job.sh'))
             error_cmd.append(job_id)
