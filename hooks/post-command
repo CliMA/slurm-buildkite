@@ -1,3 +1,4 @@
 if [ "$BUILDKITE_AGENT_META_DATA_QUEUE" != "derecho" ]; then
-    sstat -a --format=JobId,AveRSS,MaxRSS,AveVMSize,MaxVMSize,NodeList,NTasks -j $SLURM_JOB_ID
+    command -v seff &> /dev/null && seff "$SLURM_JOB_ID" || \
+    sstat -a --format=JobId,AveRSS,MaxRSS,AveVMSize,MaxVMSize,NodeList,NTasks -j "$SLURM_JOB_ID"
 fi
