@@ -17,6 +17,8 @@ DEFAULT_GPU_PARTITIONS = {"derecho": "preempt@desched1", "test": "batch", "clima
 # Map from buildkite queue to HPC reservation
 DEFAULT_RESERVATIONS = {"new-central": "clima_cpu", "derecho": "UCIT0011"}
 DEFAULT_GPU_RESERVATIONS = {"new-central": "clima", "derecho": "UCIT0011"}
+# list of clusters with no reservations
+NO_RESERVATION_QUEUES = {"clima"}
 # Map from buildkite queue to PBS server
 DEFAULT_PBS_SERVERS = {"derecho": "desched1"}
 
@@ -51,13 +53,13 @@ class SlurmJobScheduler(JobScheduler):
         slurm_keys = {k: v for k, v in tags.items() if k.startswith('slurm_')}
 
         # No reservation, add default
-        if 'slurm_reservation' not in slurm_keys:
+        if 'slurm_reservation' not in slurm_keys and queue not in NO_RESERVATION_QUEUES:
             if gpu_is_requested(slurm_keys):        
                 slurm_keys['slurm_reservation'] = DEFAULT_GPU_RESERVATIONS[queue]
             else:
                 slurm_keys['slurm_reservation'] = DEFAULT_RESERVATIONS[queue]
         # Key exists and reservation == false, remove reservation
-        elif slurm_keys['slurm_reservation'].lower() == "false":
+        elif slurm_keys.get("slurm_reservation", "").lower() == "false":
             del slurm_keys['slurm_reservation']
 
         for key, value in slurm_keys.items():
