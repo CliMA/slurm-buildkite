@@ -24,21 +24,24 @@ if [ ! -z "${BUILDKITE_AGENT_META_DATA_ERROR+x}" ]; then
     exit 1
 fi
 
-# Slurm Job Info
-
-if [ "$BUILDKITE_AGENT_META_DATA_QUEUE" != "derecho" ]; then
-    source /etc/profile.d/modules.sh
-    echo "--- Slurm Job ID: ${SLURM_JOB_ID}"
-    scontrol show job ${SLURM_JOB_ID} --details
-    scontrol show node ${SLURM_JOB_NODELIST}
-
-    export TMPDIR="/tmp/slurm-${SLURM_JOB_ID}"
-else
+# Job Info
+if [ "$BUILDKITE_AGENT_META_DATA_QUEUE" = "derecho" ]; then
     echo "--- PBS Job ID: ${PBS_JOBID}"
     qstat -f ${PBS_JOBID} || {
         echo "Error: qstat failed" >&2
     }
     echo "Current nodes: $(cat $PBS_NODEFILE)"
+else
+    # Only source modules if not gcp queue
+    if [ "$BUILDKITE_AGENT_META_DATA_QUEUE" = "gcp" ]; then
+        export PATH=/usr/local/bin:$PATH
+    else
+        source /etc/profile.d/modules.sh
+    fi
+    echo "--- Slurm Job ID: ${SLURM_JOB_ID}"
+    scontrol show job ${SLURM_JOB_ID} --details
+    scontrol show node ${SLURM_JOB_NODELIST}
+    export TMPDIR="/tmp/slurm-${SLURM_JOB_ID}"
 fi
 
 echo "--- Queue: $BUILDKITE_AGENT_META_DATA_QUEUE"
@@ -55,6 +58,9 @@ case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
         ;;
     "derecho")
         source "${SLURM_BUILDKITE_PATH}/cluster_environments/derecho.sh"
+        ;;
+    "gcp")
+        source "${SLURM_BUILDKITE_PATH}/cluster_environments/gcp.sh"
         ;;
     "test")
         mkdir -p "${TMPDIR}"
