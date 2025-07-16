@@ -12,18 +12,18 @@ df -h /tmp/
 # Remove tempdir
 case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
     "new-central")
-        pdsh -w "$SLURM_NODELIST" rm -rf "/tmp/slurm_${SLURM_JOB_ID}" || { 
-            echo "Warning: pdsh failed to remove directory. Falling back to srun.";
-            srun --ntasks-per-node=1 --ntasks="${SLURM_JOB_NUM_NODES}" rm -rf "/tmp/slurm_${SLURM_JOB_ID}"; 
-        }
+        srun --ntasks-per-node=1 --ntasks="${SLURM_JOB_NUM_NODES}" rm -rf "$TMPDIR"; 
         ;;
     "clima")
-        rm -rf "/tmp/slurm_${SLURM_JOB_ID}"
+        rm -rf "$TMPDIR"
         ;;
     "derecho")
         pbsdsh -- rm -rf "$TMPDIR"
         ;;
+    "gcp")
+        srun --ntasks-per-node=1 --ntasks="${SLURM_JOB_NUM_NODES}" rm -rf "$TMPDIR"; 
+        ;;
     "test")
-        rm -rf "/tmp/slurm_${SLURM_JOB_ID}"
+        rm -rf "$TMPDIR"
         ;;
 esac

@@ -13,11 +13,11 @@ Use this token to install the Buildkite agent:
 TOKEN=.buildkite_token bash -c "`curl -sL https://raw.githubusercontent.com/buildkite/agent/main/install.sh`
 ```
 
-From the buildkite-agent install directory (probably `~/.buildkite_agent`), copy over:
+From the buildkite-agent install directory (probably `~/.buildkite-agent`), copy over:
 - `bin/buildkite-agent`
-	- `cp ~/.buildkite_agent/bin/buildkite-agent bin`
+	- `cp ~/.buildkite-agent/bin/buildkite-agent bin`
 - `buildkite-agent.cfg`
-	- `cp ~/.buildkite_agent/buildkite-agent.cfg`
+	- `cp ~/.buildkite-agent/buildkite-agent.cfg .`
 
 Now, there are several files to modify:
 
@@ -43,6 +43,8 @@ Add entries for:
 - `DEFAULT_PARTITIONS`: Map from buildkite queue to slurm partition or PBS queue
 - `DEFAULT_GPU_PARTITIONS`: Map from buildkite queue to GPU slurm partition or PBS queue
 - `DEFAULT_RESERVATIONS`: Map from buildkite queue to HPC reservation name
+- `NO_RESERVATION_QUEUES`: For clusters with no default reservations
+
 
 #### hooks/environment
 

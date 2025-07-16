@@ -15,13 +15,19 @@ case "$(hostname)" in
         export BUILDKITE_PATH="/glade/campaign/univ/ucit0011/slurm-buildkite"
         export BUILDKITE_QUEUE='derecho'
         ;;
+    "hpc12-slurm-login-001")
+        export BUILDKITE_PATH="/home/ext_nefrathe_caltech_edu/slurm-buildkite"
+        export BUILDKITE_QUEUE='gcp'
+        # We need to alter PATH for access to slurm binaries in `bin/poll.py`
+        export PATH=/usr/local/bin:$PATH
+        ;;
     *)
         echo "Invalid hostname found, exiting..."
         exit 1
         ;;
 esac
 
-if [[ -d BUILDKITE_PATH ]]; then
+if [[ ! -d "$BUILDKITE_PATH" ]]; then
     echo "Could not find buildkite dir $BUILDKITE_PATH. Exiting..."
     exit 1
 fi
