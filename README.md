@@ -26,7 +26,7 @@ For arguments without values, they must be set to true.
 As an example,
 ```
 agents:
-  queue: new-central
+  queue: central
   slurm_nodes: 1
   slurm_tasks_per_node: 2
   slurm_exclusive: true

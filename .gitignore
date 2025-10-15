@@ -2,7 +2,9 @@
 .instantiate
 .exclude_nodes
 .*documenter_key
+.*_documenter
 .*_token
+.cdsapirc
 buildkite-agent.cfg
 bin/buildkite-agent
 logs/

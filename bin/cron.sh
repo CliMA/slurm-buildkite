@@ -2,8 +2,8 @@
 
 case "$(hostname)" in
     "login3.cm.cluster")
-        export BUILDKITE_PATH="/central/groups/esm/slurm-buildkite"
-        export BUILDKITE_QUEUE='new-central'
+        export BUILDKITE_PATH="/resnick/groups/esm/slurm-buildkite"
+        export BUILDKITE_QUEUE='central'
         ;;
     "clima.gps.caltech.edu")
         export BUILDKITE_PATH="/clima/slurm-buildkite"

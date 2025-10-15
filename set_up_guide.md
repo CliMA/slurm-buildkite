@@ -10,7 +10,7 @@ Either use an existing personal token or create one [here](https://buildkite.com
 
 Use this token to install the Buildkite agent:
 ```
-TOKEN=.buildkite_token bash -c "`curl -sL https://raw.githubusercontent.com/buildkite/agent/main/install.sh`
+TOKEN=.buildkite_token bash -c "`curl -sL https://raw.githubusercontent.com/buildkite/agent/main/install.sh`"
 ```
 
 From the buildkite-agent install directory (probably `~/.buildkite-agent`), copy over:
