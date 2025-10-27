@@ -30,7 +30,8 @@ CLIMA_OVERRIDES="$CLIMA_DEST""Overrides.toml"
 # --exclude=".[!.]*" is to exclude dotfiles (e.g., NFS temporary files)
 rsync -av --omit-dir-times --exclude=".[!.]*" --exclude="*~" "$CENTRAL_SRC" "buildkite@clima.gps.caltech.edu:$CLIMA_DEST"
 
-# Second, we have to update the Overrides.toml on Clima
-ssh buildkite@clima.gps.caltech.edu "sed -i 's|/groups/esm/ClimaArtifacts/artifacts/|/net/sampo/data1/ClimaArtifacts/artifacts/|g' $CLIMA_OVERRIDES"
-
-
+# Second, we have to update the Overrides.toml on Clima and append any extra overrides we have for Clima
+ssh buildkite@clima.gps.caltech.edu "
+    sed -i 's|/groups/esm/ClimaArtifacts/artifacts/|/net/sampo/data1/ClimaArtifacts/artifacts/|g' '$CLIMA_OVERRIDES' &&
+    cat '$CLIMA_DEST/Overrides_extra.toml' >> '$CLIMA_OVERRIDES'
+"
