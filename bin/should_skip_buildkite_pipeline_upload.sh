@@ -15,7 +15,7 @@
 #     soft_fail:
 #         - exit_status: 1
 #     agents:
-#         queue: new-central
+#         queue: central
 #         slurm_qos: "debug"
 #         slurm_time: "00:05:00"
 
@@ -28,7 +28,7 @@
 #         buildkite-agent pipeline upload .buildkite/pipeline.yml
 #       fi
 #     agents:
-#         queue: new-central
+#         queue: central
 #         slurm_qos: "debug"
 #         slurm_time: "00:05:00"
 

@@ -11,7 +11,7 @@ df -h /tmp/
 
 # Remove tempdir
 case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
-    "new-central")
+    "central")
         srun --ntasks-per-node=1 --ntasks="${SLURM_JOB_NUM_NODES}" rm -rf "$TMPDIR"; 
         ;;
     "clima")

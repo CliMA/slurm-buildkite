@@ -48,8 +48,8 @@ echo "JULIA_DEPOT_PATH: $JULIA_DEPOT_PATH"
 
 # Create TMPDIR on all nodes and source cluster-specific environment if applicable
 case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
-    "new-central")
-        source "${SLURM_BUILDKITE_PATH}/cluster_environments/caltech_hpc.sh"
+    "central")
+        source "${SLURM_BUILDKITE_PATH}/cluster_environments/caltech_central.sh"
         ;;
     "clima")
         # Clima only has one node
