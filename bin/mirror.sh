@@ -28,9 +28,8 @@ CLIMA_OVERRIDES="$CLIMA_DEST""Overrides.toml"
 
 # --omit-dir-times as in https://stackoverflow.com/a/668049
 # --exclude=".[!.]*" is to exclude dotfiles (e.g., NFS temporary files)
-rsync -av --omit-dir-times --exclude=".[!.]*" --exclude="*~" "$CENTRAL_SRC" "buildkite@clima.gps.caltech.edu:$CLIMA_DEST"
+# --exclude="crujra_forcing_data/" is to skip the very large CRUJRA forcing artifact
+rsync -av --omit-dir-times --exclude=".[!.]*" --exclude="*~" --exclude="crujra_forcing_data/" "$CENTRAL_SRC" "buildkite@clima.gps.caltech.edu:$CLIMA_DEST"
 
 # Second, we have to update the Overrides.toml on Clima
 ssh buildkite@clima.gps.caltech.edu "sed -i 's|/groups/esm/ClimaArtifacts/artifacts/|/net/sampo/data1/ClimaArtifacts/artifacts/|g' $CLIMA_OVERRIDES"
-
-
