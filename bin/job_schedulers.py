@@ -11,8 +11,8 @@ DEFAULT_SCHEDULER = os.environ.get('JOB_SYSTEM', 'slurm')
 DEFAULT_TIMELIMIT = '1:05:00'
 
 # Map from buildkite queue to slurm partition or PBS queue
-DEFAULT_PARTITIONS = {"gcp": "a3", "derecho": "preempt@desched1", "test": "batch", "clima": "batch", "central": "expansion"}
-DEFAULT_GPU_PARTITIONS = {"gcp": "a3", "derecho": "preempt@desched1", "test": "batch", "clima": "batch", "central": "gpu"}
+DEFAULT_PARTITIONS = {"gcp": "a3,a3mega", "derecho": "preempt@desched1", "test": "batch", "clima": "batch", "central": "expansion"}
+DEFAULT_GPU_PARTITIONS = {"gcp": "a3,a3mega", "derecho": "preempt@desched1", "test": "batch", "clima": "batch", "central": "gpu"}
 
 # Map from buildkite queue to HPC reservation
 DEFAULT_RESERVATIONS = { "central": "clima_cpu", "derecho": "UCIT0011"}
