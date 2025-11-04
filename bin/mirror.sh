@@ -3,7 +3,7 @@
 set -x
 
 case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
-    "new-central")
+    "central")
         echo "Mirroring artifacts from central to clima"
         ;;
     *)
