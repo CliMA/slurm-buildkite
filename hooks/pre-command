@@ -17,6 +17,9 @@ case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
         chgrp hpc_esm $BUILDKITE_BUILD_PATH
         chmod g+s $BUILDKITE_BUILD_PATH
         ;;
+    "gcp")
+        chmod 755 $BUILDKITE_BUILD_PATH
+        ;;
 esac
 
 set +v
