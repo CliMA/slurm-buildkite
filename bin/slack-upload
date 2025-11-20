@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Slack API: https://api.slack.com/methods/files.upload
+# Slack API: https://docs.slack.dev/messaging/working-with-files/#uploading_files
 
 set -euf -o pipefail
 
@@ -15,7 +15,6 @@ Usage() {
   ${echo} " -s SLACK_TOKEN\tAPI auth token"
   ${echo}
   ${echo} "Optional:"
-  ${echo} " -u API_URL\tSlack API endpoint to use (default: ${API_URL})"
   ${echo} " -h     \tPrint help"
   ${echo} " -m TYPE\tFile type (see https://api.slack.com/types/file#file_types)"
   ${echo} " -n TITLE\tTitle for slack post"
@@ -30,59 +29,95 @@ Usage() {
 : ${HELP:=0}
 : ${USAGE:=1}
 
-# Default Vars
-API_URL='https://slack.com/api/files.upload'
+# Curl Options
 CURL_OPTS='--silent'
 
 # main
 
-while getopts :c:f:s:u:hm:n:vx: OPT; do
+while getopts :c:f:s:hm:n:vx: OPT; do
   case ${OPT} in
-    c)
-      CHANNEL="$OPTARG"
-      ;;
-    f)
-      FILENAME="$OPTARG"
-      SHORT_FILENAME=$(basename ${FILENAME})
-      ;;
-    s)
-      SLACK_TOKEN="$OPTARG"
-      ;;
-    u)
-      API_URL="$OPTARG"
-      ;;
-    h)
-      Usage ${HELP}
-      ;;
-    m)
-      CURL_OPTS="${CURL_OPTS} -F filetype=${OPTARG}"
-      ;;
-    n)
-      CURL_OPTS="${CURL_OPTS} -F title='${OPTARG}'"
-      ;;
-    v)
-      CURL_OPTS="${CURL_OPTS} -v"
-      ;;
-    x)
-      CURL_OPTS="${CURL_OPTS} -F initial_comment='${OPTARG}'"
-      ;;
-    \?)
-      echo "Invalid option: -$OPTARG" >&2
-      Usage ${USAGE}
-      ;;
+    c) CHANNEL="$OPTARG" ;;
+    f) FILENAME="$OPTARG"; SHORT_FILENAME=$(basename "${FILENAME}") ;;
+    s) SLACK_TOKEN="$OPTARG" ;;
+    h) Usage ${HELP} ;;
+    m) FILETYPE="${OPTARG}" ;;
+    n) TITLE="${OPTARG}" ;;
+    v) CURL_OPTS="${CURL_OPTS} -v" ;;
+    x) COMMENT="${OPTARG}" ;;
+    \?) echo "Invalid option: -$OPTARG" >&2; Usage ${USAGE} ;;
   esac
 done
 
+# Prepend a # to the Slack channel name if it doesn't have one
 if [[ ( "${CHANNEL}" != "#"* ) && ( "${CHANNEL}" != "@"* ) ]]; then
   CHANNEL="#${CHANNEL}"
 fi
 
-# had to use eval to avoid strange whitespace behavior in options
-eval curl $CURL_OPTS \
-  --form-string channels=${CHANNEL} \
-  -F file=@${FILENAME} \
-  -F filename=${SHORT_FILENAME} \
-  -F token=${SLACK_TOKEN} \
-  ${API_URL}
+# Get the size of the file in bytes
+FILESIZE=$(stat -c%s "$FILENAME")
+
+# Slack requires a three-step upload process:
+#   a) get a temporary upload URL
+#   b) POST the file bytes to that URL
+#   c) complete the upload and share to a channel
+
+# -----------------------------
+# 1. Request an external upload URL from Slack
+# -----------------------------
+# Send a JSON object with the file name and size in bytes to the API.
+resp=$(curl $CURL_OPTS --location "https://slack.com/api/files.getUploadURLExternal" \
+  --header "Authorization: Bearer $SLACK_TOKEN" \
+  --form "filename=${SHORT_FILENAME}" \
+  --form "length=${FILESIZE}")
+
+# Check if the API call succeeded
+if [[ $(jq -r '.ok' <<< "$resp") != "true" ]]; then
+    echo "ERROR: files.getUploadURLExternal failed:"
+    echo "$resp"
+    exit 1
+fi
+
+# Extract the upload URL and file ID from Slack's JSON response
+upload_url=$(jq -r '.upload_url' <<< "$resp")
+file_id=$(jq -r '.file_id' <<< "$resp")
+
+# -----------------------------
+# 2. Upload the file bytes to the temporary signed URL using POST
+# -----------------------------
+# Use --write-out to get the HTTP status code for verification
+http_code=$(curl $CURL_OPTS --location "$upload_url" \
+  --header "Content-Type: application/octet-stream" \
+  --data-binary @"$FILENAME" \
+  --write-out '%{http_code}' \
+  --output /dev/null)
+
+# Check if the upload succeeded (should return 200 OK)
+if [[ "$http_code" != "200" ]]; then
+    echo "ERROR: File upload failed with HTTP status: $http_code"
+    exit 1
+fi
+
+# -----------------------------
+# 3. Complete the upload (share it to the Slack channel)
+# -----------------------------
+# If no title is provided, use the short filename
+title="${TITLE:-$SHORT_FILENAME}"
+
+# Call Slack API to finalize the upload and share it
+resp2=$(curl $CURL_OPTS --location "https://slack.com/api/files.completeUploadExternal" \
+  --header "Authorization: Bearer $SLACK_TOKEN" \
+  --form "files=[{\"id\": \"$file_id\", \"title\": \"$title\"}]" \
+  --form "channel_id=${CHANNEL}" \
+  --form "initial_comment=${COMMENT:-}")
+
+# Check if the complete-upload API call succeeded
+if [[ $(jq -r '.ok' <<< "$resp2") != "true" ]]; then
+    echo "ERROR: files.completeUploadExternal failed:"
+    echo "$resp2"
+    exit 1
+fi
+
+# Success message
+echo "Upload complete and posted to: $CHANNEL"
 
 exit 0
