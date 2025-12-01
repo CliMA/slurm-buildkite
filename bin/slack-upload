@@ -48,11 +48,6 @@ while getopts :c:f:s:hm:n:vx: OPT; do
   esac
 done
 
-# Prepend a # to the Slack channel name if it doesn't have one
-if [[ ( "${CHANNEL}" != "#"* ) && ( "${CHANNEL}" != "@"* ) ]]; then
-  CHANNEL="#${CHANNEL}"
-fi
-
 # Get the size of the file in bytes
 FILESIZE=$(stat -c%s "$FILENAME")
 
