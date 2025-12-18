@@ -22,6 +22,12 @@ NO_RESERVATION_QUEUES = {"clima", "gcp"}
 # Map from buildkite queue to PBS server
 DEFAULT_PBS_SERVERS = {"derecho": "desched1"}
 
+# Constraint to restrict to Broadwell nodes on central queue
+# Broadwell nodes only have P100s and V100s, not the more expensive GPUs
+# To see node features in the gpu partition, run `sinfo -o "%N %f %G" -p gpu`
+# Resnick HPC (central) documentation: https://www.hpc.caltech.edu/resources
+CENTRAL_GPU_CONSTRAINT = "broadwell"
+
 # Search for the word "gpu" in the given dict
 def gpu_is_requested(scheduler_tags):
     found = any("gpu" in key or "gpu" in value for key, value in scheduler_tags.items())
@@ -61,6 +67,11 @@ class SlurmJobScheduler(JobScheduler):
         # Key exists and reservation == false, remove reservation
         elif slurm_keys.get("slurm_reservation", "").lower() == "false":
             del slurm_keys['slurm_reservation']
+
+        # For GPU jobs on central queue, add constraint to restrict to P100 nodes
+        # Only add if user hasn't explicitly set a constraint
+        if gpu_is_requested(slurm_keys) and queue == "central" and 'slurm_constraint' not in slurm_keys:
+            slurm_keys['slurm_constraint'] = CENTRAL_GPU_CONSTRAINT
 
         for key, value in slurm_keys.items():
             cmd.append(self.format_resource(key, value))
