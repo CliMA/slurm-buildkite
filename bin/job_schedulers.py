@@ -22,16 +22,53 @@ NO_RESERVATION_QUEUES = {"clima", "gcp"}
 # Map from buildkite queue to PBS server
 DEFAULT_PBS_SERVERS = {"derecho": "desched1"}
 
-# Constraint to restrict to Broadwell nodes on central queue
-# Broadwell nodes only have P100s and V100s, not the more expensive GPUs
-# To see node features in the gpu partition, run `sinfo -o "%N %f %G" -p gpu`
+# Default GPU type for central queue
+# GPU type can be specified explicitly using --gres=gpu:p100:ngpus
 # Resnick HPC (central) documentation: https://www.hpc.caltech.edu/resources
-CENTRAL_GPU_CONSTRAINT = "broadwell"
+CENTRAL_GPU_TYPE = "p100"
 
 # Search for the word "gpu" in the given dict
 def gpu_is_requested(scheduler_tags):
     found = any("gpu" in key or "gpu" in value for key, value in scheduler_tags.items())
     return found
+
+# Determine the number of GPUs requested from slurm_keys
+def get_gpu_count(slurm_keys):
+    """
+    Extract GPU count from slurm_keys. Checks in order:
+    1. slurm_gpus (total GPUs)
+    2. slurm_gpus_per_task * slurm_ntasks (if both specified)
+    3. slurm_gpus_per_node * slurm_nodes (if both specified)
+    4. slurm_gpus_per_task (if specified alone, assumes 1 task)
+    5. slurm_gpus_per_node (if specified alone, assumes 1 node)
+    6. Default to 1 if no GPU count is found
+    """
+    # Check for explicit total GPU count
+    if 'slurm_gpus' in slurm_keys:
+        return int(slurm_keys['slurm_gpus'])
+
+    # Check for gpus_per_task with ntasks
+    if 'slurm_gpus_per_task' in slurm_keys:
+        gpus_per_task = int(slurm_keys['slurm_gpus_per_task'])
+        if 'slurm_ntasks' in slurm_keys:
+            ntasks = int(slurm_keys['slurm_ntasks'])
+            return gpus_per_task * ntasks
+        else:
+            # If gpus_per_task is specified but ntasks isn't, assume 1 task
+            return gpus_per_task
+
+    # Check for gpus_per_node with nodes
+    if 'slurm_gpus_per_node' in slurm_keys:
+        gpus_per_node = int(slurm_keys['slurm_gpus_per_node'])
+        if 'slurm_nodes' in slurm_keys:
+            nodes = int(slurm_keys['slurm_nodes'])
+            return gpus_per_node * nodes
+        else:
+            # If gpus_per_node is specified but nodes isn't, assume 1 node
+            return gpus_per_node
+
+    # Default to 1 (only called when GPU is requested, so we need at least 1)
+    return 1
 
 class JobScheduler:
     def submit_job(self, logger, build_log_dir, job):
@@ -68,10 +105,15 @@ class SlurmJobScheduler(JobScheduler):
         elif slurm_keys.get("slurm_reservation", "").lower() == "false":
             del slurm_keys['slurm_reservation']
 
-        # For GPU jobs on central queue, add constraint to restrict to P100 nodes
-        # Only add if user hasn't explicitly set a constraint
-        if gpu_is_requested(slurm_keys) and queue == "central" and 'slurm_constraint' not in slurm_keys:
-            slurm_keys['slurm_constraint'] = CENTRAL_GPU_CONSTRAINT
+        # For GPU jobs on central queue, add P100 requirement via gres
+        # Only add if user hasn't explicitly set gres
+        if gpu_is_requested(slurm_keys) and queue == "central" and 'slurm_gres' not in slurm_keys:
+            gpu_count = get_gpu_count(slurm_keys)
+            slurm_keys['slurm_gres'] = f"gpu:{CENTRAL_GPU_TYPE}:{gpu_count}"
+            # Remove slurm_gpus to avoid conflict with --gres (--gpus and --gres conflict)
+            # Keep slurm_gpus_per_task and slurm_gpus_per_node as they may be needed
+            # for proper per-task/per-node allocation
+            slurm_keys.pop('slurm_gpus', None)
 
         for key, value in slurm_keys.items():
             cmd.append(self.format_resource(key, value))
