@@ -11,6 +11,16 @@ export MODULEPATH="/glade/campaign/univ/ucit0011/ClimaModules-Derecho:/glade/u/a
 module load ncarenv/24.12
 
 export PATH="/glade/campaign/univ/ucit0011/software/MPIwrapper/2024_05_27/bin/:$PATH"
-export TMPDIR="$TMPDIR/pbs-${PBS_JOBID}"
 
+# PBS sets TMPDIR to /var/tmp/pbs.${PBS_JOBID}.${HOSTNAME}
+# Ensure this directory exists and persists (Buildkite needs it for hook wrappers)
+# PBS should create it, but ensure it exists in case it doesn't or was cleaned up
+# Store the original PBS TMPDIR before we modify it
+if [ -n "$TMPDIR" ] && [ ! -d "$TMPDIR" ]; then
+    mkdir -p "$TMPDIR"
+    # Ensure it persists (PBS might clean it up too early)
+    chmod 755 "$TMPDIR" 2>/dev/null || true
+fi
+
+export TMPDIR="$TMPDIR/pbs-${PBS_JOBID}"
 pbsdsh -- mkdir -p "${TMPDIR}"
