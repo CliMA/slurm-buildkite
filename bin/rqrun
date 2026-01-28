@@ -1,0 +1,161 @@
+#!/bin/bash
+#!/bin/bash
+#
+# rqrun — resilient job submission wrapper
+#
+# rqrun submits a batch job (sbatch or qsub) and automatically requeues it
+# when the scheduler sends a termination signal (e.g. timeout or preemption).
+#
+# Usage:
+#   rqrun sbatch [sbatch options] script.sh
+#   rqrun qsub   [qsub options]   script.sh
+#
+# The wrapper traps scheduler signals and resubmits the job up to a configurable
+# retry limit:
+#   - Slurm: traps SIGUSR1 (sent before termination)
+#   - PBS/qsub: traps SIGTERM
+#
+# NOTE (PBS/qsub):
+# Because rqrun traps SIGTERM to trigger resubmission, qsub jobs will not exit
+# on a normal qdel. To terminate a job without requeueing, it must be killed
+# with:
+#   qdel -W force <jobid>
+#
+# Environment variables:
+#   RQ_RETRY_LIMIT   Maximum number of retries (default: 3)
+#   RQ_CURRENT_RETRY Internal counter used across resubmissions
+#
+# The user script is captured at submission time; later edits do not affect
+# the running or requeued job.
+
+# Configure environment
+REAL_RQRUN=$(realpath "$0")
+RETRY_LIMIT=${RQ_RETRY_LIMIT:-3}
+CURRENT_RETRY=${RQ_CURRENT_RETRY:-0}
+SCHEDULER=$1
+shift # Remove scheduler (sbatch/qsub) from args
+
+# Block when CURRENT_RETRY exceeds RETRY_LIMIT
+if [ "$CURRENT_RETRY" -gt "$RETRY_LIMIT" ]; then
+    echo "[rqrun] Max retries reached." && exit 1
+fi
+
+# Identify the user's script, assuming it's the last argument
+USER_SCRIPT="${@: -1}"
+# Capture any arguments that aren't the script name
+OTHER_ARGS="${@:1:$#-1}"
+
+# Resolve to absolute path for better tracing
+USER_SCRIPT_ABS=$(realpath "$USER_SCRIPT" 2>/dev/null || echo "$USER_SCRIPT")
+# Extract directives from the user's script
+# This finds lines starting with #SBATCH or #PBS and converts them to command line flags
+EXTRACTED_FLAGS=""
+if [[ "$SCHEDULER" == "sbatch" ]]; then
+    EXTRACTED_FLAGS=$(grep "^#SBATCH[[:space:]]" "$USER_SCRIPT" | sed 's/^#SBATCH[[:space:]]\+//' | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+elif [[ "$SCHEDULER" == "qsub" ]]; then
+    EXTRACTED_FLAGS=$(grep "^#PBS[[:space:]]" "$USER_SCRIPT" | sed 's/^#PBS[[:space:]]\+//' | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+fi
+
+# Read user script content to interpolate into submission script
+USER_SCRIPT_CONTENT=$(cat "$USER_SCRIPT")
+
+# Create a temporary submission script
+USER_SCRIPT_DIR=$(dirname "$USER_SCRIPT_ABS")
+SUBMISSION_SCRIPT=$(mktemp "$USER_SCRIPT_DIR/.rqrun_XXXXXX_$(basename "$USER_SCRIPT")")
+SUBMISSION_SCRIPT_ABS=$(realpath "$SUBMISSION_SCRIPT" 2>/dev/null || echo "$SUBMISSION_SCRIPT")
+
+# Write the wrapper script, then append user script content
+cat << EOF > "$SUBMISSION_SCRIPT"
+#!/bin/bash
+# --- Auto-Injected by rqrun ---
+# Read environment variables set by the scheduler
+CURRENT_RETRY=\${RQ_CURRENT_RETRY:-0}
+RETRY_LIMIT=\${RQ_RETRY_LIMIT:-3}
+
+# Flag to track if resubmission happened
+RESUBMITTED=0
+
+resubmit_logic() {
+    local signal_name=\$1
+    local next_retry=\$((CURRENT_RETRY + 1))
+    RESUBMITTED=1
+    echo "[rqrun] Signal received (\$signal_name)." >&2
+    
+    # Check if we can resubmit before saying we're going to
+    if [ \$next_retry -gt \$RETRY_LIMIT ]; then
+        echo "[rqrun] Max retries reached." >&2
+        exit 0
+    fi
+    
+    echo "[rqrun] Resubmitting attempt \$next_retry/\$RETRY_LIMIT" >&2
+    
+    # Increment retry and call rqrun again
+    # Capture the output which includes the job ID
+    RESUBMIT_OUTPUT=\$(RQ_CURRENT_RETRY=\$next_retry RQ_RETRY_LIMIT=\$RETRY_LIMIT \\
+    "$REAL_RQRUN" $SCHEDULER $OTHER_ARGS "$USER_SCRIPT" 2>&1)
+    RESUBMIT_EXIT=\$?
+    if [ \$RESUBMIT_EXIT -eq 0 ]; then
+        # Extract job ID from output (format: "Submitted batch job 142963")
+        # Use sed for portability
+        JOB_ID=\$(echo "\$RESUBMIT_OUTPUT" | sed -n 's/.*Submitted batch job \([0-9]*\).*/\1/p')
+        if [ -n "\$JOB_ID" ]; then
+            echo "[rqrun] Job successfully resubmitted (new job ID: \$JOB_ID)" >&2
+        else
+            # Fallback: show full output if we can't extract job ID
+            echo "[rqrun] Job successfully resubmitted: \$RESUBMIT_OUTPUT" >&2
+        fi
+    else
+        echo "[rqrun] WARNING: Resubmission may have failed (exit code: \$RESUBMIT_EXIT)" >&2
+        echo "[rqrun] Output: \$RESUBMIT_OUTPUT" >&2
+    fi
+    # Exit 0 so the EXIT trap triggers and cleans up the script
+    exit 0
+}
+
+# Trap signals: 10 (SIGUSR1, Slurm) and TERM (PBS/Generic)
+# Use explicit function call to ensure proper execution
+trap 'resubmit_logic 10' 10
+trap 'resubmit_logic TERM' TERM
+
+# Run the user's actual script
+# Script content is interpolated at submission time, so changes to the original
+# file won't affect this job
+# Wrap execution to ensure signals are handled even when interrupting external
+# commands
+set +e  # Don't exit on error, we'll handle it
+echo "[rqrun] Running user script: $USER_SCRIPT_ABS"
+EOF
+
+# Append the user script content (interpolated at submission time)
+echo "$USER_SCRIPT_CONTENT" >> "$SUBMISSION_SCRIPT"
+
+# Append the rest of the wrapper
+cat << EOF >> "$SUBMISSION_SCRIPT"
+USER_EXIT_CODE=\$?
+set -e  # Re-enable exit on error
+EOF
+
+chmod +x "$SUBMISSION_SCRIPT"
+
+# Submit to the scheduler
+EXPORT_VARS="RQ_CURRENT_RETRY=$CURRENT_RETRY,RQ_RETRY_LIMIT=$RETRY_LIMIT"
+
+if [[ "$SCHEDULER" == "sbatch" ]]; then
+    JOB_OUTPUT=$(sbatch $OTHER_ARGS $EXTRACTED_FLAGS --signal=B:10@60 \
+        --export=ALL,$EXPORT_VARS \
+        "$SUBMISSION_SCRIPT" 2>&1)
+elif [[ "$SCHEDULER" == "qsub" ]]; then
+    JOB_OUTPUT=$(qsub $OTHER_ARGS $EXTRACTED_FLAGS \
+        -v "$EXPORT_VARS" \
+        "$SUBMISSION_SCRIPT" 2>&1)
+fi
+
+JOB_EXIT=$?
+if [ $JOB_EXIT -ne 0 ]; then
+    echo "$JOB_OUTPUT" >&2
+    rm -f "$SUBMISSION_SCRIPT"
+    exit $JOB_EXIT
+fi
+
+echo "$JOB_OUTPUT"
+rm -f "$SUBMISSION_SCRIPT"
