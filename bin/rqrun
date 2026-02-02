@@ -1,5 +1,4 @@
 #!/bin/bash
-#!/bin/bash
 #
 # rqrun — resilient job submission wrapper
 #
@@ -92,12 +91,14 @@ resubmit_logic() {
     # Increment retry and call rqrun again
     # Capture the output which includes the job ID
     RESUBMIT_OUTPUT=\$(RQ_CURRENT_RETRY=\$next_retry RQ_RETRY_LIMIT=\$RETRY_LIMIT \\
-    "$REAL_RQRUN" $SCHEDULER $OTHER_ARGS "$USER_SCRIPT" 2>&1)
+    "$REAL_RQRUN" $SCHEDULER $OTHER_ARGS "$USER_SCRIPT_ABS" 2>&1)
     RESUBMIT_EXIT=\$?
     if [ \$RESUBMIT_EXIT -eq 0 ]; then
-        # Extract job ID from output (format: "Submitted batch job 142963")
-        # Use sed for portability
-        JOB_ID=\$(echo "\$RESUBMIT_OUTPUT" | sed -n 's/.*Submitted batch job \([0-9]*\).*/\1/p')
+        # Extract job ID from output
+        # Slurm: "Submitted batch job 142963"  -> 142963
+        # PBS:   "4725400.desched1"            -> 4725400.desched1
+        JOB_ID=\$(echo "\$RESUBMIT_OUTPUT" | sed -n 's/.*Submitted batch job \([0-9][0-9.]*[a-zA-Z0-9_-]*\).*/\1/p')
+        [ -z "\$JOB_ID" ] && JOB_ID=\$(echo "\$RESUBMIT_OUTPUT" | sed -n 's/^\([0-9][0-9.]*[a-zA-Z0-9_-]*\).*/\1/p')
         if [ -n "\$JOB_ID" ]; then
             echo "[rqrun] Job successfully resubmitted (new job ID: \$JOB_ID)" >&2
         else
@@ -127,7 +128,7 @@ echo "[rqrun] Running user script: $USER_SCRIPT_ABS"
 EOF
 
 # Append the user script content (interpolated at submission time)
-echo "$USER_SCRIPT_CONTENT" >> "$SUBMISSION_SCRIPT"
+printf '%s\n' "$USER_SCRIPT_CONTENT" >> "$SUBMISSION_SCRIPT"
 
 # Append the rest of the wrapper
 cat << EOF >> "$SUBMISSION_SCRIPT"

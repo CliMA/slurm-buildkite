@@ -74,6 +74,53 @@ file_contents = readchomp(log_file)
     end
 end
 
+# Test: Resubmission works when script changes directory before signal
+# Without USER_SCRIPT_ABS, resubmission would fail because cwd has changed
+println("Test: Resubmission after cd (using $scheduler)")
+
+cd_log_file = "requeue_cd_test.txt"
+cd_script_content = scheduler == "sbatch" ? """#!/bin/bash
+#SBATCH --time=00:02:00
+#SBATCH --job-name=timeout_cd_test
+#SBATCH --open-mode=append
+#SBATCH --output=$cd_log_file
+#SBATCH --parsable
+cd /tmp
+while true; do sleep 1; done
+exit 0
+""" : """#!/bin/bash
+#PBS -A UCIT0011
+#PBS -q preempt
+#PBS -l walltime=00:02:00
+#PBS -l select=1:ncpus=1
+#PBS -N timeout_cd_test
+#PBS -j oe
+#PBS -o $cd_log_file
+cd /tmp
+sleep 200
+exit 0
+"""
+
+write("timeout_script_cd.sh", cd_script_content)
+chmod("timeout_script_cd.sh", 0o755)
+
+rm(cd_log_file, force=true)
+cmd = addenv(`bin/rqrun $scheduler timeout_script_cd.sh`, "RQ_RETRY_LIMIT" => "1")
+job_id = readchomp(cmd)
+println("Submitted job: $job_id")
+
+wait_for_submission_completion(cd_log_file)
+
+cd_file_contents = readchomp(cd_log_file)
+@testset "cd-before-signal: resubmission succeeds" begin
+    @test occursin("[rqrun] Running user script", cd_file_contents)
+    @test occursin("[rqrun] Signal received", cd_file_contents)
+    @test occursin("[rqrun] Job successfully resubmitted", cd_file_contents)
+    @test occursin("[rqrun] Max retries reached", cd_file_contents)
+end
+
+println("cd-before-signal test passed!")
+
 # Test: Job submission failure
 # Create script with invalid directives that will cause submission to fail
 invalid_script_content = 
