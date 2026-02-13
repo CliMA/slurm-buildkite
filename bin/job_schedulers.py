@@ -34,8 +34,12 @@ def gpu_is_requested(scheduler_tags):
     return found
 
 class JobScheduler:
-    def submit_job(self, logger, build_log_dir, job):
+    def submit_job(self, logger, build_log_dir, job, error_message=None):
         raise NotImplementedError("Subclass must implement submit_job")
+
+    def submit_error_job(self, logger, build_log_dir, job, error_message):
+        """Submit a minimal job that reports an error back to Buildkite"""
+        return self.submit_job(logger, build_log_dir, job, error_message=error_message)
 
     def cancel_jobs(self, logger, job_ids):
         raise NotImplementedError("Subclass must implement cancel_jobs")
@@ -44,63 +48,90 @@ class JobScheduler:
         raise NotImplementedError("Subclass must implement current_jobs")
 
 class SlurmJobScheduler(JobScheduler):
-    def submit_job(self, logger, build_log_dir, job):
+    def submit_job(self, logger, build_log_dir, job, error_message=None):
         job_id = job['id']
         buildkite_url = job['web_url']
         tags = get_buildkite_job_tags(job)
-        queue = tags['queue']
+        queue = tags.get('queue', BUILDKITE_QUEUE)
+
+        # Build base command
         cmd = [
             'sbatch',
             '--parsable',
-            "--job-name=buildkite",
             f'--comment={buildkite_url}',
             f"--output={joinpath(build_log_dir, 'slurm-%j.log')}",
         ]
-        slurm_keys = {k: v for k, v in tags.items() if k.startswith('slurm_')}
 
-        # No reservation, add default
-        if 'slurm_reservation' not in slurm_keys and queue not in NO_RESERVATION_QUEUES:
-            if gpu_is_requested(slurm_keys):        
-                slurm_keys['slurm_reservation'] = DEFAULT_GPU_RESERVATIONS[queue]
-            else:
-                slurm_keys['slurm_reservation'] = DEFAULT_RESERVATIONS[queue]
-        # Key exists and reservation == false, remove reservation
-        elif slurm_keys.get("slurm_reservation", "").lower() == "false":
-            del slurm_keys['slurm_reservation']
-
-        # For GPU jobs on central queue, add constraint to restrict to P100 nodes
-        # Only add if user hasn't explicitly set a constraint
-        if gpu_is_requested(slurm_keys) and queue == "central" and 'slurm_constraint' not in slurm_keys:
-            slurm_keys['slurm_constraint'] = CENTRAL_GPU_CONSTRAINT
-
-        for key, value in slurm_keys.items():
-            cmd.append(self.format_resource(key, value))
-
-        # Set partition depending on if a GPU has been requested
-        # Fallback to 'default' if there is no default partition
-        if gpu_is_requested(slurm_keys):
-            default_partition = DEFAULT_GPU_PARTITIONS[queue]
+        # For error jobs, use minimal resources
+        if error_message:
+            cmd.extend([
+                "--job-name=bk_error",
+                "--time=00:01:00",
+                "--ntasks=1",
+            ])
+            # Add reservation if applicable
+            default_reservation = DEFAULT_RESERVATIONS.get(queue, None)
+            if default_reservation:
+                cmd.append(f"--reservation={default_reservation}")
         else:
-            default_partition = DEFAULT_PARTITIONS[queue]
+            # Normal job - apply full resource configuration
+            cmd.append("--job-name=buildkite")
+            slurm_keys = {k: v for k, v in tags.items() if k.startswith('slurm_')}
 
-        agent_partition = tags.get('partition', default_partition)
-        cmd.append(f"--partition={agent_partition}")
+            # No reservation, add default
+            if 'slurm_reservation' not in slurm_keys and queue not in NO_RESERVATION_QUEUES:
+                if gpu_is_requested(slurm_keys):
+                    slurm_keys['slurm_reservation'] = DEFAULT_GPU_RESERVATIONS[queue]
+                else:
+                    slurm_keys['slurm_reservation'] = DEFAULT_RESERVATIONS[queue]
+            # Key exists and reservation == false, remove reservation
+            elif slurm_keys.get("slurm_reservation", "").lower() == "false":
+                del slurm_keys['slurm_reservation']
 
-        use_exclude = tags.get('exclude', 'true')
-        if use_exclude == 'true' and BUILDKITE_EXCLUDE_NODES:
-            cmd.append(f"--exclude={BUILDKITE_EXCLUDE_NODES}")
+            # For GPU jobs on central queue, add constraint to restrict to P100 nodes
+            # Only add if user hasn't explicitly set a constraint
+            if gpu_is_requested(slurm_keys) and queue == "central" and 'slurm_constraint' not in slurm_keys:
+                slurm_keys['slurm_constraint'] = CENTRAL_GPU_CONSTRAINT
 
-        if "slurm_time" not in slurm_keys:
-            cmd.append(f"--time={DEFAULT_TIMELIMIT}")
+            for key, value in slurm_keys.items():
+                cmd.append(self.format_resource(key, value))
 
+            # Set partition depending on if a GPU has been requested
+            if gpu_is_requested(slurm_keys):
+                default_partition = DEFAULT_GPU_PARTITIONS[queue]
+            else:
+                default_partition = DEFAULT_PARTITIONS[queue]
+
+            agent_partition = tags.get('partition', default_partition)
+            cmd.append(f"--partition={agent_partition}")
+
+            use_exclude = tags.get('exclude', 'true')
+            if use_exclude == 'true' and BUILDKITE_EXCLUDE_NODES:
+                cmd.append(f"--exclude={BUILDKITE_EXCLUDE_NODES}")
+
+            if "slurm_time" not in slurm_keys:
+                cmd.append(f"--time={DEFAULT_TIMELIMIT}")
+
+        # Add script and arguments
         cmd.append(joinpath(BUILDKITE_PATH, 'bin/schedule_job.sh'))
         cmd.append(job_id)
 
-        modules = tags.get('modules', "")
+        # Add modules (empty for error jobs)
+        modules = tags.get('modules', "") if not error_message else ""
         if modules != "":
             cmd.append(modules)
 
+        # Add error message if present
+        if error_message:
+            if not modules:
+                cmd.append("")  # Empty modules argument
+            cmd.append(error_message)
+
+        # Submit the job
+        log_type = "error job" if error_message else "job"
+        logger.info(f"Submitting {log_type} for {buildkite_url}")
         logger.debug(f"Slurm command: {' '.join(cmd)}")
+
         try:
             result = subprocess.run(
                 cmd,
@@ -111,42 +142,12 @@ class SlurmJobScheduler(JobScheduler):
             )
             slurm_job_id = int(result.stdout)
             log_path = joinpath(build_log_dir, f'slurm-{slurm_job_id}.log')
-            logger.info(f"Slurm job submitted, ID: {slurm_job_id}, log: {log_path}")
-
+            logger.info(f"Slurm {log_type} submitted, ID: {slurm_job_id}, log: {log_path}")
         except subprocess.CalledProcessError as e:
-            # TODO: Run a minimal failing slurm job to return the error to buildkite
-            logger.error(
-                f"Slurm error during job submission, retcode={e.returncode}:\n{e.stderr}"
-            )
-
-            error_cmd = [
-                'sbatch',
-                '--parsable',
-                "--job-name=bk_error",
-                "--time=00:01:00",
-                "--ntasks=1",
-                f'--comment={buildkite_url}',
-                f"--output={joinpath(build_log_dir, 'slurm-%j.log')}",
-            ]
-            
-            default_reservation = DEFAULT_RESERVATIONS.get(buildkite_queue, None)
-            if default_reservation:
-                error_cmd.append("--reservation={default_reservation}")
-            # re-run job while passing error message as argument so it can be sent to buildkite
-            error_cmd.append(joinpath(BUILDKITE_PATH, 'bin/schedule_job.sh'))
-            error_cmd.append(job_id)
-            error_cmd.append("")
-            error_cmd.append(e.stderr)
-            try:
-                subprocess.run(
-                    error_cmd,
-                    check=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    universal_newlines=True
-                )
-            except:
-                logger.error("Failed to submit error job to Slurm")
+            logger.error(f"Slurm error during job submission:\n{e.stderr}")
+            # Only retry with error job if this wasn't already an error job
+            if not error_message:
+                self.submit_error_job(logger, build_log_dir, job, e.stderr)
 
     def cancel_jobs(self, logger, job_ids):
         cmd = ['scancel', '--name=buildkite']
@@ -197,67 +198,98 @@ class SlurmJobScheduler(JobScheduler):
 DATABASE_FILE = "jobs.db"  # Dict database, maps from pbs jobid to buildkite job url
 
 class PBSJobScheduler(JobScheduler):
-    def submit_job(self, logger, build_log_dir, job):
+    def submit_job(self, logger, build_log_dir, job, error_message=None):
         job_id = job['id']
         buildkite_url = job['web_url']
         tags = get_buildkite_job_tags(job)
-        buildkite_queue = tags['queue']
-        
+        buildkite_queue = tags.get('queue', BUILDKITE_QUEUE)
+
         # TODO: Retried jobs currently append their log to the existing one
         log_file = joinpath(build_log_dir, f"{job_id}.log")
 
+        # Build base command
         cmd = [
             'qsub',
             '-V',               # Inherit environment variables
             '-m', 'n',          # No mail
             '-j', 'oe',         # Output stdout and stderr
-            '-N', 'buildkite',  # Job name
-            '-o',  log_file,
+            '-o', log_file,
         ]
-        pbs_tags = {k: v for k, v in tags.items() if k.startswith('pbs_')}
-        for key, value in pbs_tags.items():
-            cmd.extend(self.format_resource(key.split('pbs_', 1)[1], value))
 
-        default_reservation = DEFAULT_RESERVATIONS.get(buildkite_queue, None)
-        if "pbs_A" not in pbs_tags and default_reservation:
-            cmd.extend(["-A", default_reservation])
+        # For error jobs, use minimal resources
+        if error_message:
+            cmd.extend([
+                '-N', 'bk_error',
+                '-l', 'select=1:ncpus=1',
+                '-l', 'walltime=00:01:00',
+                '-q', DEFAULT_PARTITIONS[buildkite_queue],
+            ])
+            # Add reservation if applicable
+            default_reservation = DEFAULT_RESERVATIONS.get(buildkite_queue, None)
+            if default_reservation:
+                cmd.extend(["-A", default_reservation])
+        else:
+            # Normal job - apply full resource configuration
+            cmd.extend(['-N', 'buildkite'])
+            pbs_tags = {k: v for k, v in tags.items() if k.startswith('pbs_')}
+            for key, value in pbs_tags.items():
+                cmd.extend(self.format_resource(key.split('pbs_', 1)[1], value))
 
-        if 'pbs_q' not in pbs_tags:
-            if gpu_is_requested(pbs_tags):
-                default_pbs_queue = DEFAULT_GPU_PARTITIONS[buildkite_queue]
-            else:
-                default_pbs_queue = DEFAULT_PARTITIONS[buildkite_queue]
-            cmd.extend(["-q", default_pbs_queue])
+            default_reservation = DEFAULT_RESERVATIONS.get(buildkite_queue, None)
+            if "pbs_A" not in pbs_tags and default_reservation:
+                cmd.extend(["-A", default_reservation])
 
-        if 'pbs_l_walltime' not in pbs_tags:
-            cmd.extend(["-l", f"walltime={DEFAULT_TIMELIMIT}"])
+            if 'pbs_q' not in pbs_tags:
+                if gpu_is_requested(pbs_tags):
+                    default_pbs_queue = DEFAULT_GPU_PARTITIONS[buildkite_queue]
+                else:
+                    default_pbs_queue = DEFAULT_PARTITIONS[buildkite_queue]
+                cmd.extend(["-q", default_pbs_queue])
+
+            if 'pbs_l_walltime' not in pbs_tags:
+                cmd.extend(["-l", f"walltime={DEFAULT_TIMELIMIT}"])
+
+        # Add script and arguments
         cmd.extend(["--", joinpath(BUILDKITE_PATH, 'bin/schedule_job.sh'), job_id])
 
-        modules = tags.get('modules', "")
+        # Add modules (empty for error jobs)
+        modules = tags.get('modules', "") if not error_message else ""
         if modules != "":
             cmd.append(modules)
 
+        # Add error message if present
+        if error_message:
+            if not modules:
+                cmd.append("")  # Empty modules argument
+            cmd.append(error_message)
+
+        # Submit the job
+        log_type = "error job" if error_message else "job"
+        logger.info(f"Submitting PBS {log_type} for {buildkite_url}")
         logger.debug(f"PBS command: {' '.join(cmd)}")
+
         try:
             ret = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+            pbs_job_id = self.parse_job_id(ret.stdout)
+            if pbs_job_id:
+                logger.info(f"Submitted PBS {log_type} {pbs_job_id}, log {log_file}")
+                try:
+                    with dbm.open(DATABASE_FILE, 'w') as db:
+                        db[buildkite_url] = pbs_job_id
+                except dbm.error as e:
+                    logger.error(f"Failed to add job to database: {e}")
+                return pbs_job_id
+            else:
+                error_msg = f"Failed to parse PBS job ID from output: {ret.stdout}"
+                logger.error(error_msg)
+                if not error_message:
+                    self.submit_error_job(logger, build_log_dir, job, error_msg)
+                return None
         except subprocess.CalledProcessError as e:
-            logger.error(f"PBS job submission failed: {(' ').join(e.cmd)}")
-            logger.error(f"Return code: {e.returncode}")
-            logger.error(f"stderr: {e.stderr}")
-            return None
-
-
-        pbs_job_id = self.parse_job_id(ret.stdout)
-        if pbs_job_id:
-            logger.info(f"Submitted PBS job {pbs_job_id}, log {log_file}")
-            try:
-                with dbm.open(DATABASE_FILE, 'w') as db:
-                    db[buildkite_url] = pbs_job_id
-            except dbm.error as e:
-                logger.error(f"Failed to add job to database: {e}")
-            return pbs_job_id
-        else:
-            logger.error(f"Failed to parse PBS job ID from output: {ret.stdout}")
+            logger.error(f"PBS job submission failed: {e.stderr}")
+            # Only retry with error job if this wasn't already an error job
+            if not error_message:
+                self.submit_error_job(logger, build_log_dir, job, e.stderr)
             return None
 
     # Returns all current jobs, removing those which don't have a running PBS job    

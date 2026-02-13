@@ -17,13 +17,6 @@ export CI_BUILD_DIR="${BUILDKITE_BUILD_PATH}/${BUILDKITE_PIPELINE_SLUG}/${BUILDK
 export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$CI_BUILD_DIR/depot/default}"
 export BUILDKITE_BUILD_CHECKOUT_PATH="${CI_BUILD_DIR}/${BUILDKITE_PIPELINE_SLUG}"
 
-# Report error if it exists
-if [ ! -z "${BUILDKITE_AGENT_META_DATA_ERROR+x}" ]; then
-    echo "--- Job submission error"
-    echo "error message: ${BUILDKITE_AGENT_META_DATA_ERROR}"
-    exit 1
-fi
-
 # Job Info
 # Derecho is the only PBS queue
 if [ "$BUILDKITE_AGENT_META_DATA_QUEUE" = "derecho" ]; then
@@ -45,6 +38,15 @@ fi
 
 echo "--- Queue: $BUILDKITE_AGENT_META_DATA_QUEUE"
 echo "JULIA_DEPOT_PATH: $JULIA_DEPOT_PATH"
+
+# Report error if it exists
+if [ ! -z "${BUILDKITE_AGENT_META_DATA_ERROR+x}" ]; then
+    echo "--- ERROR in original job submission"
+    echo "${BUILDKITE_AGENT_META_DATA_ERROR}"
+    echo "Exiting..."
+    exit 1
+fi
+
 
 # Create TMPDIR on all nodes and source cluster-specific environment if applicable
 case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
