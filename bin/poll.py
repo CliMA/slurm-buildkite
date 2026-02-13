@@ -68,30 +68,43 @@ try:
             if jobstate != 'scheduled' or buildkite_url in current_jobs:
                 continue
 
-            # Directory containing slurm logs for given build
-            log_dir = joinpath(
-                BUILDKITE_PATH,
-                'logs',
-                f'{date.today()}',
-                f"build_{build['id']}",
-            )
+            try:
+                # Directory containing slurm logs for given build
+                log_dir = joinpath(
+                    BUILDKITE_PATH,
+                    'logs',
+                    f'{date.today()}',
+                    f"build_{build['id']}",
+                )
 
-            job_tags = get_buildkite_job_tags(job)
-            queue = job_tags.get('queue', None)
+                job_tags = get_buildkite_job_tags(job)
+                queue = job_tags.get('queue', None)
 
-            # Create the directory prefix if it does not exist
-            if not os.path.isdir(log_dir):
-                build_link = build_url(pipeline_name, build['number'])
-                logger.info(f"New build on `{queue}`: {pipeline_name} - {build_link}")
-                os.mkdir(log_dir)
+                # Create the directory prefix if it does not exist
+                if not os.path.isdir(log_dir):
+                    build_link = build_url(pipeline_name, build['number'])
+                    logger.info(f"New build on `{queue}`: {pipeline_name} - {build_link}")
+                    os.mkdir(log_dir)
 
-            # Only log jobs on current queue unless debugging or missing queue
-            if queue is None:
-                logger.error(f"New job missing queue. Pipeline: {pipeline_name}, {buildkite_url}")
-                continue
-            elif queue == BUILDKITE_QUEUE:
-                logger.info(f"New job: {pipeline_name}, {buildkite_url}")
-                scheduler.submit_job(logger, log_dir, job)
+                # Only log jobs on current queue unless debugging or missing queue
+                if queue is None:
+                    logger.error(f"New job missing queue. Pipeline: {pipeline_name}, {buildkite_url}")
+                    continue
+                elif queue == BUILDKITE_QUEUE:
+                    logger.info(f"New job: {pipeline_name}, {buildkite_url}")
+                    scheduler.submit_job(logger, log_dir, job)
+            except Exception as e:
+                # Handle errors that occur before job submission
+                # Submit an error-reporting job so Buildkite doesn't wait forever
+                error_msg = f"Error processing job: {str(e)}"
+                logger.error(f"{error_msg}\n{buildkite_url}", exc_info=True)
+                try:
+                    # Ensure log_dir exists even if error occurred during directory creation
+                    if not os.path.isdir(log_dir):
+                        os.makedirs(log_dir, exist_ok=True)
+                    scheduler.submit_error_job(logger, log_dir, job, error_msg)
+                except Exception as submit_error:
+                    logger.error(f"Failed to submit error job: {submit_error}", exc_info=True)
 
     # Cancel jobs in canceled builds
     canceled_builds = all_canceled_builds()

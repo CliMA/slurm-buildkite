@@ -9,21 +9,23 @@ set -euo pipefail # exit on failure or unset variable
 
 df -h /tmp/
 
-# Remove tempdir
-case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
-    "central")
-        srun --ntasks-per-node=1 --ntasks="${SLURM_JOB_NUM_NODES}" rm -rf "$TMPDIR"; 
-        ;;
-    "clima")
-        rm -rf "$TMPDIR"
-        ;;
-    "derecho")
-        pbsdsh -- rm -rf "$TMPDIR"
-        ;;
-    "gcp")
-        srun --ntasks-per-node=1 --ntasks="${SLURM_JOB_NUM_NODES}" rm -rf "$TMPDIR"; 
-        ;;
-    "test")
-        rm -rf "$TMPDIR"
-        ;;
-esac
+# Remove tempdir (skip if TMPDIR was never set or is just /tmp)
+if [ -n "${TMPDIR:-}" ] && [ "$TMPDIR" != "/tmp" ]; then
+    case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
+        "central")
+            srun --ntasks-per-node=1 --ntasks="${SLURM_JOB_NUM_NODES}" rm -rf "$TMPDIR";
+            ;;
+        "clima")
+            rm -rf "$TMPDIR"
+            ;;
+        "derecho")
+            pbsdsh -- rm -rf "$TMPDIR"
+            ;;
+        "gcp")
+            srun --ntasks-per-node=1 --ntasks="${SLURM_JOB_NUM_NODES}" rm -rf "$TMPDIR";
+            ;;
+        "test")
+            rm -rf "$TMPDIR"
+            ;;
+    esac
+fi
