@@ -21,7 +21,7 @@ esac
 # could sync the data directly on Sampo, everything is a little more
 # straightforward when we use the buildkite user on clima.
 
-CENTRAL_SRC="/groups/esm/ClimaArtifacts/artifacts/"
+CENTRAL_SRC="/resnick/groups/esm/ClimaArtifacts/artifacts/"
 CLIMA_DEST="/net/sampo/data1/ClimaArtifacts/artifacts/"
 
 CLIMA_OVERRIDES="$CLIMA_DEST""Overrides.toml"
@@ -32,4 +32,4 @@ CLIMA_OVERRIDES="$CLIMA_DEST""Overrides.toml"
 rsync -av --omit-dir-times --exclude=".[!.]*" --exclude="*~" --exclude="crujra_forcing_data/" "$CENTRAL_SRC" "buildkite@clima.gps.caltech.edu:$CLIMA_DEST"
 
 # Second, we have to update the Overrides.toml on Clima
-ssh buildkite@clima.gps.caltech.edu "sed -i 's|/groups/esm/ClimaArtifacts/artifacts/|/net/sampo/data1/ClimaArtifacts/artifacts/|g' $CLIMA_OVERRIDES"
+ssh buildkite@clima.gps.caltech.edu "sed -i 's|/resnick/groups/esm/ClimaArtifacts/artifacts/|/net/sampo/data1/ClimaArtifacts/artifacts/|g' $CLIMA_OVERRIDES"
