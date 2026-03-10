@@ -2,7 +2,15 @@
 
 PATH="${BUILDKITE_PATH}/bin:$PATH"
 
-# Modules loaded here work in buildkite, but it is best to load modules 
+# For PBS jobs, override TMPDIR before starting the agent.
+# PBS sets TMPDIR to /var/tmp/pbs.* which can be cleaned up mid-job,
+# causing the agent's hook wrapper files to disappear.
+if [ -n "${PBS_JOBID:-}" ]; then
+    export TMPDIR="$SCRATCH/pbs-${PBS_JOBID}"
+    mkdir -p "$TMPDIR"
+fi
+
+# Modules loaded here work in buildkite, but it is best to load modules
 # within the agent once the cluster-specific script has been sourced
 
 # queue and modules are used for the environment hook, and error is used for the error hook

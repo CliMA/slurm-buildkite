@@ -81,3 +81,21 @@ steps:
           queue: clima
           modules: climacommon/2024_10_09
 
+  - group: "Scheduler Error Handling"
+    key: "scheduler-error-handling"
+    steps:
+      - label: "Malformed job on Slurm"
+        command:
+          - sleep 10
+        agents:
+          queue: clima
+          slurm_gpues: 2
+          slurm_time: "00:01:00"
+        soft_fail: true
+      - label: "Malformed job on PBS"
+        command:
+          - sleep 10
+        agents:
+          queue: derecho
+          pbs_l_select: "1:ngpues=2:ncpus=64"
+        soft_fail: true
