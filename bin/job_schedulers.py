@@ -22,16 +22,43 @@ NO_RESERVATION_QUEUES = {"clima", "gcp"}
 # Map from buildkite queue to PBS server
 DEFAULT_PBS_SERVERS = {"derecho": "desched1"}
 
-# Constraint to restrict to Broadwell nodes on central queue
-# Broadwell nodes only have P100s and V100s, not the more expensive GPUs
-# To see node features in the gpu partition, run `sinfo -o "%N %f %G" -p gpu`
-# Resnick HPC (central) documentation: https://www.hpc.caltech.edu/resources
-CENTRAL_GPU_CONSTRAINT = "broadwell"
+# Default GPU type per queue, used to set --gres=gpu:type:N
+# GPU type can be overridden by explicitly setting slurm_gres
+# Queues not listed here will not have a default GPU type applied
+DEFAULT_GPU_TYPES = {"central": "p100"}
 
 # Search for the word "gpu" in the given dict
 def gpu_is_requested(scheduler_tags):
     found = any("gpu" in key or "gpu" in value for key, value in scheduler_tags.items())
     return found
+
+# Determine the number of GPUs requested from slurm_keys
+def get_gpu_count(slurm_keys):
+    """
+    Extract GPU count from slurm_keys. Checks in order:
+    1. slurm_gpus (total GPUs)
+    2. slurm_gpus_per_task * slurm_ntasks
+    3. slurm_gpus_per_node * slurm_nodes
+    6. Default to 1 if no GPU count is found
+    """
+    # Check for explicit total GPU count
+    if 'slurm_gpus' in slurm_keys:
+        return int(slurm_keys['slurm_gpus'])
+
+    # Check for gpus_per_task with ntasks
+    if 'slurm_gpus_per_task' in slurm_keys:
+        gpus_per_task = int(slurm_keys['slurm_gpus_per_task'])
+        ntasks = int(slurm_keys.get('slurm_ntasks', 1))
+        return gpus_per_task * ntasks
+
+    # Check for gpus_per_node with nodes
+    if 'slurm_gpus_per_node' in slurm_keys:
+        gpus_per_node = int(slurm_keys['slurm_gpus_per_node'])
+        nodes = int(slurm_keys.get('slurm_nodes', 1))
+        return gpus_per_node * nodes
+
+    # Default to 1 (only called when GPU is requested, so we need at least 1)
+    return 1
 
 class JobScheduler:
     def submit_job(self, logger, build_log_dir, job):
@@ -58,20 +85,28 @@ class SlurmJobScheduler(JobScheduler):
         ]
         slurm_keys = {k: v for k, v in tags.items() if k.startswith('slurm_')}
 
-        # No reservation, add default
+        # No reservation, add default if job has < 3 GPUs. Larger jobs can 
         if 'slurm_reservation' not in slurm_keys and queue not in NO_RESERVATION_QUEUES:
-            if gpu_is_requested(slurm_keys):        
+            if gpu_is_requested(slurm_keys) and get_gpu_count(slurm_keys) < 3:
                 slurm_keys['slurm_reservation'] = DEFAULT_GPU_RESERVATIONS[queue]
-            else:
+            elif not gpu_is_requested(slurm_keys):
                 slurm_keys['slurm_reservation'] = DEFAULT_RESERVATIONS[queue]
         # Key exists and reservation == false, remove reservation
         elif slurm_keys.get("slurm_reservation", "").lower() == "false":
             del slurm_keys['slurm_reservation']
 
-        # For GPU jobs on central queue, add constraint to restrict to P100 nodes
-        # Only add if user hasn't explicitly set a constraint
-        if gpu_is_requested(slurm_keys) and queue == "central" and 'slurm_constraint' not in slurm_keys:
-            slurm_keys['slurm_constraint'] = CENTRAL_GPU_CONSTRAINT
+        # If the queue has a default GPU type, set --gres=gpu:type:N
+        # Only add if user hasn't explicitly set gres
+        default_gpu_type = DEFAULT_GPU_TYPES.get(queue)
+        if gpu_is_requested(slurm_keys) and default_gpu_type and 'slurm_gres' not in slurm_keys:
+            gpu_count = get_gpu_count(slurm_keys)
+            slurm_keys['slurm_gres'] = f"gpu:{default_gpu_type}:{gpu_count}"
+            # Remove slurm_gpus to avoid conflict with --gres (--gpus and --gres conflict)
+            # Keep slurm_gpus_per_task and slurm_gpus_per_node as they may be needed
+            # for proper per-task/per-node allocation
+            slurm_keys.pop('slurm_gpus', None)
+            slurm_keys.pop('slurm_gpus_per_task', None)
+            slurm_keys.pop('slurm_gpus_per_node', None)
 
         for key, value in slurm_keys.items():
             cmd.append(self.format_resource(key, value))
@@ -129,10 +164,9 @@ class SlurmJobScheduler(JobScheduler):
                 f"--output={joinpath(build_log_dir, 'slurm-%j.log')}",
             ]
             
-            default_reservation = DEFAULT_RESERVATIONS.get(buildkite_queue, None)
+            default_reservation = DEFAULT_RESERVATIONS.get(queue, None)
             if default_reservation:
-                error_cmd.append("--reservation={default_reservation}")
-            # re-run job while passing error message as argument so it can be sent to buildkite
+                error_cmd.append(f"--reservation={default_reservation}")
             error_cmd.append(joinpath(BUILDKITE_PATH, 'bin/schedule_job.sh'))
             error_cmd.append(job_id)
             error_cmd.append("")
