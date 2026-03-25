@@ -89,7 +89,7 @@ try:
             if not os.path.isdir(log_dir):
                 build_link = build_url(pipeline_name, build['number'])
                 logger.info(f"New build on `{queue}`: {pipeline_name} - {build_link}")
-                os.mkdir(log_dir)
+                os.makedirs(log_dir, exist_ok=True)
 
             # Only log jobs on current queue unless debugging or missing queue
             if queue is None:

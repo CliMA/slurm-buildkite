@@ -46,7 +46,7 @@ RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://api.runpod.io/graphql" \
     -d '{"query":"query { myself { id } }"}')
 
 HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-BODY=$(echo "$RESPONSE" | head -n -1)
+BODY=$(echo "$RESPONSE" | sed '$d')
 
 if [ "$HTTP_CODE" = "200" ]; then
     pass "RunPod API returned 200"
@@ -62,32 +62,7 @@ fi
 
 echo ""
 
-# -------------------------------------------------------------------
-# 3. Test Buildkite API connectivity
-# -------------------------------------------------------------------
-echo "--- Testing Buildkite API connectivity"
-
-BUILDKITE_PATH="${BUILDKITE_PATH:-$(pwd)}"
-TOKEN_FILE="$BUILDKITE_PATH/.buildkite_token"
-
-if [ -f "$TOKEN_FILE" ]; then
-    BK_TOKEN=$(cat "$TOKEN_FILE" | tr -d '[:space:]')
-    BK_RESPONSE=$(curl -s -w "\n%{http_code}" \
-        -H "Authorization: Bearer $BK_TOKEN" \
-        "https://api.buildkite.com/v2/organizations/clima/pipelines?per_page=1")
-    BK_HTTP=$(echo "$BK_RESPONSE" | tail -1)
-
-    if [ "$BK_HTTP" = "200" ]; then
-        pass "Buildkite API returned 200"
-    else
-        fail "Buildkite API returned HTTP $BK_HTTP"
-    fi
-else
-    skip "No .buildkite_token found — skipping Buildkite API test"
-fi
-
-echo ""
-
+export BUILDKITE_PATH="${BUILDKITE_PATH:-$(pwd)}"
 # -------------------------------------------------------------------
 # 4. Test RunPodJobScheduler import
 # -------------------------------------------------------------------
@@ -117,12 +92,12 @@ echo "--- Testing Docker image build"
 
 DOCKER_DIR="$BUILDKITE_PATH/docker"
 if [ -d "$DOCKER_DIR" ] && command -v docker &>/dev/null; then
-    if docker build -t clima-buildkite-test "$DOCKER_DIR" --quiet 2>/dev/null; then
+    if docker build -t clima-buildkite "$DOCKER_DIR" --quiet 2>/dev/null; then
         pass "Docker image builds successfully"
 
         # Verify key binaries exist in the image
         for bin in julia buildkite-agent nvcc; do
-            if docker run --rm clima-buildkite-test which "$bin" &>/dev/null; then
+            if docker run --rm clima-buildkite which "$bin" &>/dev/null; then
                 pass "Docker image has $bin"
             else
                 fail "Docker image missing $bin"

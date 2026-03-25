@@ -372,7 +372,7 @@ class PBSJobScheduler(JobScheduler):
             return job_id_match.group(1)
         return None
 
-RUNPOD_DATABASE_FILE = "runpod_jobs.db"
+RUNPOD_DATABASE_FILE = "runpod_jobs"
 RUNPOD_API_URL = "https://api.runpod.io/graphql"
 
 # Default RunPod GPU type per number of GPUs requested
