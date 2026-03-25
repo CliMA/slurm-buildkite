@@ -32,11 +32,19 @@ if [ "$BUILDKITE_AGENT_META_DATA_QUEUE" = "derecho" ]; then
         echo "Error: qstat failed" >&2
     }
     echo "Current nodes: $(cat $PBS_NODEFILE)"
+elif [ "$BUILDKITE_AGENT_META_DATA_QUEUE" = "runpod" ]; then
+    echo "--- RunPod Pod ID: ${RUNPOD_POD_ID:-unknown}"
 else
     # Only source modules if the file exists
     if [ -f /etc/profile.d/modules.sh ]; then
-        source /etc/profile.d/modules.sh
+        if [ -f /software9/Modules/libexec/modulecmd.tcl ]; then
+            source /etc/profile.d/modules.sh
+        elif [ -f /resnick/software9/Modules/init/bash ]; then
+            # Compute nodes lack /software9 mount; fix the hardcoded path
+            source <(sed "s|'/software9/Modules/|'/resnick/software9/Modules/|g" /resnick/software9/Modules/init/bash)
+        fi
     fi
+
     echo "--- Slurm Job ID: ${SLURM_JOB_ID}"
     scontrol show job ${SLURM_JOB_ID} --details
     scontrol show node ${SLURM_JOB_NODELIST}
@@ -61,6 +69,9 @@ case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
     "gcp")
         source "${SLURM_BUILDKITE_PATH}/cluster_environments/gcp.sh"
         ;;
+    "runpod")
+        source "${SLURM_BUILDKITE_PATH}/cluster_environments/runpod.sh"
+        ;;
     "test")
         mkdir -p "${TMPDIR}"
         echo "--- Running on test queue"
@@ -75,16 +86,19 @@ ulimit -c unlimited
 printenv TMPDIR
 
 # Load modules after sourcing cluster-specific environment
-module load ${BUILDKITE_AGENT_META_DATA_MODULES:-}
+# RunPod containers do not have the modules system
+if command -v module &> /dev/null; then
+    module load ${BUILDKITE_AGENT_META_DATA_MODULES:-}
 
-# this is set to avoid rare race conditions on the same node with concurrent (step) jobs
-export OMPI_MCA_orte_tmpdir_base="$TMPDIR"
+    # this is set to avoid rare race conditions on the same node with concurrent (step) jobs
+    export OMPI_MCA_orte_tmpdir_base="$TMPDIR"
 
-# From https://stackoverflow.com/a/51141872, to remove colors from modules
-# (Color tags mess up the builkite log)
-module_list=$(module list | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g')
+    # From https://stackoverflow.com/a/51141872, to remove colors from modules
+    # (Color tags mess up the builkite log)
+    module_list=$(module list | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g')
 
-printf -- '--- ' && echo $module_list
+    printf -- '--- ' && echo $module_list
+fi
 
 if [ -n "${SLURM_GPUS_ON_NODE:-}" ]; then
     echo "--- GPUs available on ${HOSTNAME}"
