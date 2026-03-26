@@ -382,19 +382,27 @@ class RunPodJobScheduler(JobScheduler):
     def __init__(self):
         self.api_key = os.environ.get('RUNPOD_API_KEY', '')
         self.docker_image = os.environ.get('RUNPOD_DOCKER_IMAGE', '')
-        self.agent_token = os.environ.get(
-            'BUILDKITE_AGENT_TOKEN',
-            open(joinpath(BUILDKITE_PATH, '.buildkite_token'), 'r').read().rstrip()
-        )
+        self.agent_token = os.environ.get('BUILDKITE_AGENT_TOKEN', '')
+        if not self.agent_token:
+            # Parse agent token from buildkite-agent.cfg
+            cfg_path = joinpath(BUILDKITE_PATH, 'buildkite-agent.cfg')
+            with open(cfg_path, 'r') as f:
+                for line in f:
+                    if line.startswith('token='):
+                        self.agent_token = line.split('=', 1)[1].strip().strip('"')
+                        break
         if not self.api_key:
             raise ValueError("RUNPOD_API_KEY environment variable is required for RunPod scheduler")
         if not self.docker_image:
             raise ValueError("RUNPOD_DOCKER_IMAGE environment variable is required (e.g. 'your-registry/clima-buildkite:latest')")
 
-    def _graphql(self, query, variables=None):
+    def _graphql(self, query, variables=None, logger=None):
         payload = {"query": query}
         if variables:
             payload["variables"] = variables
+        if logger:
+            # Log query without variables (which may contain secrets)
+            logger.debug(f"RunPod API request: {payload['query'].strip()}")
         resp = requests.post(
             RUNPOD_API_URL,
             headers={
@@ -403,16 +411,20 @@ class RunPodJobScheduler(JobScheduler):
             },
             json=payload,
         )
+        if logger:
+            logger.debug(f"RunPod API response: HTTP {resp.status_code}")
         resp.raise_for_status()
         data = resp.json()
+        if logger:
+            logger.debug(f"RunPod API response body: {json.dumps(data, default=str)}")
         if "errors" in data:
             raise RuntimeError(f"RunPod API error: {data['errors']}")
         return data
 
-    def _get_active_pods(self):
+    def _get_active_pods(self, logger=None):
         """Return a dict of {pod_name: pod_id} for all active RunPod pods."""
         query = "query { myself { pods { id name desiredStatus } } }"
-        result = self._graphql(query)
+        result = self._graphql(query, logger=logger)
         return {
             pod["name"]: pod["id"]
             for pod in result["data"]["myself"]["pods"]
@@ -422,11 +434,13 @@ class RunPodJobScheduler(JobScheduler):
         job_id = job['id']
         buildkite_url = job['web_url']
         tags = get_buildkite_job_tags(job)
+        logger.debug(f"RunPod submit_job: job_id={job_id}, tags={tags}")
 
         # Check if a pod for this job already exists on RunPod
         pod_name = f"buildkite-{job_id[:8]}"
         try:
-            active_pods = self._get_active_pods()
+            active_pods = self._get_active_pods(logger)
+            logger.debug(f"RunPod active pods: {active_pods}")
             if pod_name in active_pods:
                 existing_id = active_pods[pod_name]
                 logger.info(f"Pod already exists for job {job_id}: {existing_id}, skipping deploy")
@@ -444,7 +458,7 @@ class RunPodJobScheduler(JobScheduler):
         runpod_tags = {k: v for k, v in tags.items() if k.startswith('runpod_')}
         gpu_type = runpod_tags.get('runpod_gpu', DEFAULT_RUNPOD_GPU)
         gpu_count = int(runpod_tags.get('runpod_gpus', '1'))
-        volume_size = int(runpod_tags.get('runpod_volume_gb', '20'))
+        volume_size = int(runpod_tags.get('runpod_volume_gb', '0'))
         modules = tags.get('modules', '')
 
         env_vars = {
@@ -453,11 +467,15 @@ class RunPodJobScheduler(JobScheduler):
             "BUILDKITE_QUEUE": "runpod",
             "RUNPOD_API_KEY": self.api_key,
         }
+        github_ssh_key = os.environ.get('GITHUB_SSH_KEY', '')
+        if github_ssh_key:
+            env_vars["GITHUB_SSH_KEY"] = github_ssh_key
         if modules:
             env_vars["BUILDKITE_MODULES"] = modules
 
         # Convert env dict to RunPod format
         env_list = [{"key": k, "value": v} for k, v in env_vars.items()]
+        logger.debug(f"RunPod deploy config: image={self.docker_image}, gpu={gpu_type} x{gpu_count}, volume={volume_size}GB, containerDisk=40GB")
 
         query = """
         mutation podFindAndDeployOnDemand($input: PodFindAndDeployOnDemandInput!) {
@@ -481,10 +499,10 @@ class RunPodJobScheduler(JobScheduler):
         }
 
         try:
-            result = self._graphql(query, variables)
+            result = self._graphql(query, variables, logger=logger)
             pod = result["data"]["podFindAndDeployOnDemand"]
             pod_id = pod["id"]
-            logger.info(f"RunPod pod deployed: {pod_id} for job {job_id}, GPU: {gpu_type} x{gpu_count}")
+            logger.info(f"RunPod pod deployed: {pod_id} for job {job_id}, GPU: {gpu_type} x{gpu_count} - https://www.console.runpod.io/pods?id={pod_id}")
 
             # Track the pod in our local database
             try:
@@ -509,14 +527,18 @@ class RunPodJobScheduler(JobScheduler):
             logger.error(f"Failed to read RunPod job database: {e}")
             return {}
 
+        logger.debug(f"RunPod local database entries: {current_jobs}")
+
         # Query RunPod for active pods to prune completed ones
         # and catch any pods the local db missed
         try:
-            active_pods = self._get_active_pods()
+            active_pods = self._get_active_pods(logger)
             active_pod_ids = set(active_pods.values())
         except Exception as e:
             logger.error(f"Failed to query RunPod pods: {e}")
             return current_jobs
+
+        logger.debug(f"RunPod active pods: {active_pods}")
 
         # Remove db entries whose pods no longer exist on RunPod
         try:
@@ -581,7 +603,7 @@ class RunPodJobScheduler(JobScheduler):
         }
         """
         try:
-            self._graphql(query, {"input": {"podId": pod_id}})
+            self._graphql(query, {"input": {"podId": pod_id}}, logger=logger)
             logger.info(f"Terminated RunPod pod: {pod_id}")
         except Exception as e:
             logger.error(f"Failed to terminate RunPod pod {pod_id}: {e}")

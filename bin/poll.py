@@ -4,7 +4,7 @@ import logging
 logger = logging.Logger('poll')
 handler = logging.StreamHandler()
 # For debug statements: handler.setLevel(logging.DEBUG)
-handler.setLevel(logging.INFO)
+handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(levelname)s: %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)

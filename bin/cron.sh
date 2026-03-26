@@ -60,5 +60,6 @@ bin/poll.py &>> "logs/$DATE/cron"
 
 # Also poll for RunPod jobs from central
 if [ "$BUILDKITE_QUEUE" = "central" ]; then
+    export GITHUB_SSH_KEY="$(cat "$BUILDKITE_PATH/.github_ssh_key" 2>/dev/null || true)"
     BUILDKITE_QUEUE=runpod bin/poll.py &>> "logs/$DATE/cron_runpod"
 fi

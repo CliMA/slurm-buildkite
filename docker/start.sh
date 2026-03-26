@@ -9,6 +9,14 @@ if [ -n "${PUBLIC_KEY:-}" ]; then
     chmod 700 /root/.ssh
     chmod 600 /root/.ssh/authorized_keys
 fi
+
+# GitHub deploy key for cloning repos
+if [ -n "${GITHUB_SSH_KEY:-}" ]; then
+    echo "$GITHUB_SSH_KEY" > /root/.ssh/id_ed25519
+    chmod 600 /root/.ssh/id_ed25519
+    ssh-keyscan -t ed25519 github.com >> /root/.ssh/known_hosts 2>/dev/null
+fi
+
 service ssh start
 
 if [ -z "${BUILDKITE_AGENT_TOKEN:-}" ]; then
