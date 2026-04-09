@@ -19,11 +19,45 @@ fi
 
 service ssh start
 
+# Clone CliMA repos into /clima in the background (interactive mode only)
 if [ -z "${BUILDKITE_AGENT_TOKEN:-}" ]; then
-    echo "WARNING: No BUILDKITE_AGENT_TOKEN set — agent not started"
+    CLONE_LOG="/tmp/clone.log"
+    echo "Running in interactive mode — cloning repos in background"
+    echo "Follow clone progress with: tail -f $CLONE_LOG"
+    REPOS=(
+        CliMA/ClimaCoupler.jl
+        CliMA/ClimaAtmos.jl
+        CliMA/ClimaCore.jl
+        CliMA/ClimaLand.jl
+    )
+    (
+        until curl -sf --max-time 5 https://github.com > /dev/null 2>&1; do
+            echo "Waiting for network..." >> "$CLONE_LOG"
+            sleep 2
+        done
+        for repo in "${REPOS[@]}"; do
+            name="${repo##*/}"
+            dest="/clima/${name}"
+            if [ ! -d "$dest" ]; then
+                echo "Cloning $repo..." >> "$CLONE_LOG"
+                git clone --depth=1 "https://github.com/${repo}.git" "$dest" >> "$CLONE_LOG" 2>&1 || true
+            fi
+        done
+        for repo in "${REPOS[@]}"; do
+            name="${repo##*/}"
+            dest="/clima/${name}"
+            if [ -f "$dest/Project.toml" ]; then
+                echo "Instantiating $name..." >> "$CLONE_LOG"
+                julia --project="$dest" -e 'import Pkg; Pkg.instantiate()' >> "$CLONE_LOG" 2>&1 || true
+            fi
+        done
+        echo "Done." >> "$CLONE_LOG"
+    ) &
+
     tail -f /dev/null
     exit 0
 fi
+
 
 # Write agent token to config
 sed -i "s/token=\"xxx\"/token=\"${BUILDKITE_AGENT_TOKEN}\"/" \

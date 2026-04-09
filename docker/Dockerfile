@@ -6,6 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
     wget curl git openssh-server \
     apt-transport-https gnupg \
+    tmux vim htop less rsync \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Buildkite agent
@@ -17,13 +18,22 @@ RUN curl -fsSL https://keys.openpgp.org/vks/v1/by-fingerprint/32A37959C2FA5C3C99
     apt-get update && apt-get install -y buildkite-agent && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Julia
-ARG JULIA_VERSION=1.11.8
+# Install Julia (1.10, 1.11, 1.12 — default: 1.12)
 ENV PATH="/root/.juliaup/bin:${PATH}"
-RUN curl -fsSL https://install.julialang.org | sh -s -- -y && juliaup add ${JULIA_VERSION} && juliaup default ${JULIA_VERSION}
-# TODO: set Julia artifacts (Base.set_depot_path())
+RUN curl -fsSL https://install.julialang.org | sh -s -- -y \
+    && juliaup add 1.10 \
+    && juliaup add 1.11 \
+    && juliaup add 1.12 \
+    && juliaup default 1.12
 
-WORKDIR /app
+
+WORKDIR /clima
+
+# Install VS Code CLI for tunnel support
+RUN curl -Lk 'https://code.visualstudio.com/sha/download?build=stable&os=cli-alpine-x64' \
+    --output /tmp/vscode_cli.tar.gz && \
+    tar -xf /tmp/vscode_cli.tar.gz -C /usr/local/bin && \
+    rm /tmp/vscode_cli.tar.gz
 
 # SSH setup
 RUN mkdir /var/run/sshd && \
