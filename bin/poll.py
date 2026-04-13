@@ -4,7 +4,7 @@ import logging
 logger = logging.Logger('poll')
 handler = logging.StreamHandler()
 # For debug statements: handler.setLevel(logging.DEBUG)
-handler.setLevel(logging.INFO)
+handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(levelname)s: %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
@@ -30,8 +30,10 @@ try:
     # poll the buildkite API to check if there are any scheduled/running builds
     builds = all_started_builds(NHOURS)
 
-    # Accumulate jobs to be canceled in one batch 
+    # Accumulate jobs to be canceled in one batch
     jobs_to_cancel = []
+    # Track active Buildkite job URLs (scheduled/running) for stale pod cleanup
+    active_buildkite_urls = set()
     # loop over all scheduled and running builds for all pipelines in the buildkite org
     for build in builds:
 
@@ -55,6 +57,10 @@ try:
             # https://buildkite.com/docs/pipelines/defining-steps#build-states
             jobstate = job['state']
             buildkite_url = job['web_url']
+
+            # Track jobs that are still active on Buildkite
+            if jobstate in ('scheduled', 'running'):
+                active_buildkite_urls.add(buildkite_url)
 
             # Cancel jobs marked by buildkite as 'canceled'
             if jobstate == 'canceled':
@@ -83,7 +89,7 @@ try:
             if not os.path.isdir(log_dir):
                 build_link = build_url(pipeline_name, build['number'])
                 logger.info(f"New build on `{queue}`: {pipeline_name} - {build_link}")
-                os.mkdir(log_dir)
+                os.makedirs(log_dir, exist_ok=True)
 
             # Only log jobs on current queue unless debugging or missing queue
             if queue is None:
@@ -107,6 +113,11 @@ try:
     if jobs_to_cancel:
         logger.debug(f"Jobs to cancel: {jobs_to_cancel}")
         scheduler.cancel_jobs(logger, jobs_to_cancel)
+
+    # RunPod-only: terminate pods whose Buildkite jobs have finished (passed/failed)
+    # but the pod is still alive (e.g. self-termination in start.sh failed)
+    if hasattr(scheduler, 'cleanup_stale_pods'):
+        scheduler.cleanup_stale_pods(logger, active_buildkite_urls)
 
 except Exception:
     logger.error("Caught exception during poll",  exc_info=True)

@@ -22,8 +22,13 @@ case "$(hostname)" in
         export PATH=/usr/local/bin:$PATH
         ;;
     *)
-        echo "Invalid hostname found, exiting..."
-        exit 1
+        # Allow overriding via environment variables for non-HPC hosts (e.g. RunPod poller)
+        if [ -n "${BUILDKITE_PATH:-}" ] && [ -n "${BUILDKITE_QUEUE:-}" ]; then
+            echo "Using environment variables: BUILDKITE_QUEUE=$BUILDKITE_QUEUE"
+        else
+            echo "Invalid hostname found, exiting..."
+            exit 1
+        fi
         ;;
 esac
 
@@ -52,3 +57,9 @@ DATE="$(date +\%Y-\%m-\%d)"
 mkdir -p "logs/$DATE"
 
 bin/poll.py &>> "logs/$DATE/cron"
+
+# Also poll for RunPod jobs from central
+if [ "$BUILDKITE_QUEUE" = "central" ]; then
+    export GITHUB_SSH_KEY="$(cat "$BUILDKITE_PATH/.github_ssh_key" 2>/dev/null || true)"
+    BUILDKITE_QUEUE=runpod bin/poll.py &>> "logs/$DATE/cron_runpod"
+fi
