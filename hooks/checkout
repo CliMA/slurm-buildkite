@@ -4,19 +4,20 @@ set -euo pipefail # exit on failure or unset variable
 set -v
 
 if [ ! -d "${BUILDKITE_BUILD_CHECKOUT_PATH}/.git" ]; then
-    echo "--- Init clone and checkout" 
+    echo "--- Init clone and checkout"
+    # use bash param expansion to support PRs from forks, and manually triggered builds where the pr repo is not set
     if [ "$BUILDKITE_COMMIT" = "HEAD" ]; then
         git clone \
             --depth=1 \
             --branch "${BUILDKITE_BRANCH}" \
             ${BUILDKITE_GIT_CLONE_FLAGS} \
-            ${BUILDKITE_REPO} \
+            "${BUILDKITE_PULL_REQUEST_REPO:-${BUILDKITE_REPO}}" \
             "${BUILDKITE_BUILD_CHECKOUT_PATH}"
     else
         git clone \
             --branch "${BUILDKITE_BRANCH}" \
             ${BUILDKITE_GIT_CLONE_FLAGS} \
-            ${BUILDKITE_REPO} \
+            "${BUILDKITE_PULL_REQUEST_REPO:-${BUILDKITE_REPO}}" \
             "${BUILDKITE_BUILD_CHECKOUT_PATH}"
     fi
     cd "${BUILDKITE_BUILD_CHECKOUT_PATH}"
