@@ -95,6 +95,9 @@ log_missing_file() {
     echo "Warning: File $1 not found."
 }
 
+# Assume this file exists
+export BUILDKITE_API_TOKEN=$(cat "$BUILDKITE_PATH/.buildkite_token")
+
 if [[ "${BUILDKITE_PIPELINE_NAME,,}" == *"climaocean"* ]]; then
     if [ -f "$BUILDKITE_PATH/.climaocean_documenter" ]; then
         export DOCUMENTER_KEY=$(cat "$BUILDKITE_PATH/.climaocean_documenter")
