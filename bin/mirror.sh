@@ -20,7 +20,7 @@ export PATH
 
 # globus-cli lives in a dedicated venv so its dependencies (e.g. urllib3 2.x)
 # don't collide with the agent's other Python tooling (e.g. botocore's urllib3
-# pin). Created once with:
+# pin). While logged in as the buildkite user esmbuild, created once with:
 #   python3 -m venv ~/globus-venv && ~/globus-venv/bin/pip install globus-cli
 GLOBUS="$HOME/globus-venv/bin/globus"
 
@@ -69,7 +69,10 @@ GCP_PROJECT="boreal-century-421217"
 # rather than a confidential client. Run `globus login` once as the buildkite
 # user on central; the CLI caches a refresh token these runs reuse. The
 # collection UUIDs (not secret) are Resnick-HPC-Cluster (source) and NCAR
-# Campaign Storage (destination).
+# Campaign Storage (destination). 
+# Collection IDs obtained from:
+#  - https://ncar-hpc-docs.readthedocs.io/en/latest/storage-systems/data-transfer/globus/
+#  - https://www.hpc.caltech.edu/docs/documentation/transferring-files.html#globus
 GLOBUS_CENTRAL_COLLECTION="9fc54b35-f66e-4ef0-a36a-49b20d684b99"
 GLOBUS_DERECHO_COLLECTION="6b5ab960-7bbf-11e8-9450-0a6d4e044368"
 
@@ -87,10 +90,13 @@ mirror_ssh() {
     remote_path="$2"
 
     # --omit-dir-times as in https://stackoverflow.com/a/668049
+    # --no-perms: don't sync mode bits. Artifact dirs are owned by various users
+    #   on the destination; without this, rsync tries (and fails with exit 23) to
+    #   chmod dirs it doesn't own. We mirror data, not permissions.
     # --exclude=".[!.]*" is to exclude dotfiles (e.g., NFS temporary files)
     # $RSYNC_ARTIFACT_EXCLUDES skips the artifacts in $EXCLUDED_ARTIFACTS
     # shellcheck disable=SC2086 # intentional word-splitting of the exclude flags
-    rsync -av --omit-dir-times --exclude=".[!.]*" --exclude="*~" $RSYNC_ARTIFACT_EXCLUDES "$CENTRAL_SRC" "${ssh_target}:${remote_path}"
+    rsync -av --no-perms --omit-dir-times --exclude=".[!.]*" --exclude="*~" $RSYNC_ARTIFACT_EXCLUDES "$CENTRAL_SRC" "${ssh_target}:${remote_path}"
     rc=$?
 
     # Always rewrite Overrides.toml, even on a partial transfer. Skipping it
@@ -184,7 +190,7 @@ gcp_pid=$!
 
 # Derecho (behind NCAR MFA -> Globus instead of ssh)
 mirror_globus "$GLOBUS_CENTRAL_COLLECTION" "$CENTRAL_SRC" \
-              "$GLOBUS_DERECHO_COLLECTION" "/glade/campaign/univ/ucit0011/ClimaArtifacts/artifacts/" \
+              "$GLOBUS_DERECHO_COLLECTION" "/glade/campaign/univ/ucit0011/ClimaArtifacts2/artifacts/" \
     > "${log_dir}/derecho.log" 2>&1 &
 derecho_pid=$!
 
