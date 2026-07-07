@@ -137,6 +137,7 @@ mirror_globus() {
         --recursive --sync-level mtime --preserve-mtime \
         $GLOBUS_ARTIFACT_EXCLUDES --exclude '.*' --exclude 'Overrides.toml' \
         --deadline "$deadline" \
+        --notify off \
         --label 'ClimaArtifacts mirror' \
         --format unix --jmespath 'task_id')
     if [ -n "$tree_task" ]; then
@@ -155,6 +156,7 @@ mirror_globus() {
     sed "s|${CENTRAL_SRC}|${dst_path}|g" "${src_path}Overrides.toml" > "$staged"
     over_task=$("$GLOBUS" transfer "${src}:${staged}" "${dst}:${dst_path}Overrides.toml" \
         --deadline "$deadline" \
+        --notify off \
         --label 'ClimaArtifacts Overrides' \
         --format unix --jmespath 'task_id')
     if [ -n "$over_task" ]; then
