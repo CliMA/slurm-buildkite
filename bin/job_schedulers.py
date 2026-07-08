@@ -60,6 +60,23 @@ def get_gpu_count(slurm_keys):
     # Default to 1 (only called when GPU is requested, so we need at least 1)
     return 1
 
+# Determine the explicitly-requested GPU type from slurm_gres, if any
+def get_gpu_type(slurm_keys):
+    """
+    Return the GPU type from an explicit slurm_gres tag, e.g.
+    'gpu:p100:4' -> 'p100', 'gpu:nvidia_l40s:1' -> 'nvidia_l40s'.
+    Returns None if slurm_gres is unset or specifies no type (e.g. 'gpu:1'),
+    in which case the queue's default GPU type applies.
+    """
+    gres = slurm_keys.get('slurm_gres')
+    if not gres:
+        return None
+    parts = gres.split(':')
+    # gpu:<type>:<count> -> parts[1] is the type; gpu:<count> has no type
+    if len(parts) >= 3:
+        return parts[1]
+    return None
+
 class JobScheduler:
     def submit_job(self, logger, build_log_dir, job):
         raise NotImplementedError("Subclass must implement submit_job")
@@ -84,11 +101,18 @@ class SlurmJobScheduler(JobScheduler):
             f"--output={joinpath(build_log_dir, 'slurm-%j.log')}",
         ]
         slurm_keys = {k: v for k, v in tags.items() if k.startswith('slurm_')}
+        default_gpu_type = DEFAULT_GPU_TYPES.get(queue)
 
-        # No reservation, add default if job has < 3 GPUs. Larger jobs can 
+        # No reservation, add default if job has < 3 GPUs. Larger jobs can
+        # run outside the reservation. Don't attach the GPU reservation to a job
+        # that explicitly requests a different GPU type (e.g. L40S): it can never
+        # run on the reservation's nodes, and would otherwise sit at the head of
+        # the queue holding a reservation it can't use.
         if 'slurm_reservation' not in slurm_keys and queue not in NO_RESERVATION_QUEUES:
             if gpu_is_requested(slurm_keys) and get_gpu_count(slurm_keys) < 3:
-                slurm_keys['slurm_reservation'] = DEFAULT_GPU_RESERVATIONS[queue]
+                gpu_type = get_gpu_type(slurm_keys)
+                if default_gpu_type is None or gpu_type is None or gpu_type == default_gpu_type:
+                    slurm_keys['slurm_reservation'] = DEFAULT_GPU_RESERVATIONS[queue]
             elif not gpu_is_requested(slurm_keys):
                 slurm_keys['slurm_reservation'] = DEFAULT_RESERVATIONS[queue]
         # Key exists and reservation == false, remove reservation
@@ -97,7 +121,6 @@ class SlurmJobScheduler(JobScheduler):
 
         # If the queue has a default GPU type, set --gres=gpu:type:N
         # Only add if user hasn't explicitly set gres
-        default_gpu_type = DEFAULT_GPU_TYPES.get(queue)
         if gpu_is_requested(slurm_keys) and default_gpu_type and 'slurm_gres' not in slurm_keys:
             gpu_count = get_gpu_count(slurm_keys)
             slurm_keys['slurm_gres'] = f"gpu:{default_gpu_type}:{gpu_count}"
