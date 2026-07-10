@@ -77,6 +77,124 @@ def get_gpu_type(slurm_keys):
         return parts[1]
     return None
 
+# The queue default GPU type (e.g. p100 on central) is the cheapest, so we
+# prefer it. But when it is congested we spill to a fallback type rather than
+# wait. This cluster's gpu partition requires a *typed* request
+# (--gres=gpu:<type>:<count>), so "any GPU" is not expressible -- we must name a
+# fallback. GPU_SPILL_FALLBACK lists the alternatives cheapest-first (by Slurm
+# billing weight: v100==p100 < l40s < h100 < h200); we spill to the first one
+# with room to start the job now. A queue with no entry never spills.
+GPU_SPILL_FALLBACK = {
+    "central": ["v100", "nvidia_l40s", "h100", "nvidia_h200"],
+}
+# We only consider spilling once more than this many jobs are already pending on
+# the preferred type. Raise a queue's threshold to prefer its cheap GPU harder;
+# the very high default effectively disables spilling on unlisted queues.
+GPU_SPILL_PENDING_THRESHOLD = {"central": 10}
+GPU_SPILL_PENDING_THRESHOLD_DEFAULT = 10 ** 9
+
+def _max_free_by_type(partition):
+    """Map gpu_type -> most free GPUs of that type on any single schedulable node
+    in `partition`. Nodes that are down/drained/completing/reserved are excluded
+    since a new (non-reserved) job can't land on them -- reserved nodes are
+    handled separately via `_reservation_free_by_type`. One `sinfo` call, one
+    snapshot."""
+    out = subprocess.run(
+        ["sinfo", "-h", "-p", partition, "-N",
+         "-O", "StateCompact:|,Gres:|,GresUsed:"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    ).stdout.decode("utf-8")
+    best = {}
+    for line in out.splitlines():
+        fields = line.split("|")
+        if len(fields) < 3:
+            continue
+        state, gres, gres_used = fields[0], fields[1], fields[2]
+        if re.search(r"down|drain|resv|comp|fail|\*", state):
+            continue
+        cfg = {t: int(n) for t, n in re.findall(r"gpu:(\w+):(\d+)", gres)}
+        used = {t: int(n) for t, n in re.findall(r"gpu:(\w+):(\d+)", gres_used)}
+        for t, n in cfg.items():
+            best[t] = max(best.get(t, 0), n - used.get(t, 0))
+    return best
+
+def _pending_gpu_jobs(gpu_type, partition):
+    """Number of PENDING jobs in `partition` whose per-node GRES requests
+    `gpu_type`."""
+    out = subprocess.run(
+        ["squeue", "-h", "-p", partition, "-t", "PD", "-O", "tres-per-node:60"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    ).stdout.decode("utf-8")
+    return sum(1 for line in out.splitlines() if f"gpu:{gpu_type}" in line)
+
+def _reservation_free_by_type(reservation):
+    """Map gpu_type -> most free GPUs of that type on any single schedulable node
+    in `reservation`, via scontrol. sinfo misreports GPU usage on reserved nodes
+    (shows a `resv` overlay with `GresUsed:0(IDX:N/A)`), so we read CfgTRES minus
+    AllocTRES per node instead. Empty dict if the reservation has no nodes or
+    can't be read."""
+    res = subprocess.run(
+        ["scontrol", "show", "reservation", reservation, "-o"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    ).stdout.decode("utf-8")
+    m = re.search(r"\bNodes=(\S+)", res)
+    if not m or m.group(1) in ("", "(null)"):
+        return {}
+    out = subprocess.run(
+        ["scontrol", "show", "node", m.group(1), "-o"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    ).stdout.decode("utf-8")
+    best = {}
+    for line in out.splitlines():
+        state = re.search(r"\bState=(\S+)", line)
+        if state and re.search(r"DOWN|DRAIN|FAIL|COMP|MAINT|NOT_RESPOND", state.group(1)):
+            continue
+        cfg_m = re.search(r"\bCfgTRES=(\S*)", line)
+        alloc_m = re.search(r"\bAllocTRES=(\S*)", line)
+        cfg = {t: int(n) for t, n in
+               re.findall(r"gres/gpu:(\w+)=(\d+)", cfg_m.group(1) if cfg_m else "")}
+        used = {t: int(n) for t, n in
+                re.findall(r"gres/gpu:(\w+)=(\d+)", alloc_m.group(1) if alloc_m else "")}
+        for t, n in cfg.items():
+            best[t] = max(best.get(t, 0), n - used.get(t, 0))
+    return best
+
+def pick_spill_gpu_type(logger, queue, preferred, gpu_count, partition, reservation=None):
+    """Submit-time decision. Return a fallback GPU type to spill to, or None to
+    keep `preferred`. Spill only when `preferred` can't start now on the open
+    partition or the job's `reservation`, more than the queue threshold are
+    pending on it, and a cheaper-first fallback can start now on the partition.
+    Otherwise keep `preferred`. On any Slurm query error, return None."""
+    threshold = GPU_SPILL_PENDING_THRESHOLD.get(
+        queue, GPU_SPILL_PENDING_THRESHOLD_DEFAULT
+    )
+    try:
+        free = _max_free_by_type(partition)
+        preferred_free = free.get(preferred, 0)
+        if preferred_free < gpu_count and reservation:
+            resv_free = _reservation_free_by_type(reservation)
+            preferred_free = max(preferred_free, resv_free.get(preferred, 0))
+        if preferred_free >= gpu_count:
+            return None
+        pending = _pending_gpu_jobs(preferred, partition)
+        if pending <= threshold:
+            return None
+        for alt in GPU_SPILL_FALLBACK.get(queue, []):
+            if free.get(alt, 0) >= gpu_count:
+                logger.info(
+                    f"{preferred} congested ({pending} pending > {threshold}, "
+                    f"< {gpu_count} free/node); spilling to {alt}"
+                )
+                return alt
+        logger.info(
+            f"{preferred} congested ({pending} pending) but no fallback type has "
+            f"{gpu_count} free/node; keeping {preferred}"
+        )
+        return None
+    except Exception as e:
+        logger.warning(f"GPU spill check failed ({e}); keeping {preferred}")
+        return None
+
 class JobScheduler:
     def submit_job(self, logger, build_log_dir, job):
         raise NotImplementedError("Subclass must implement submit_job")
@@ -108,11 +226,13 @@ class SlurmJobScheduler(JobScheduler):
         # that explicitly requests a different GPU type (e.g. L40S): it can never
         # run on the reservation's nodes, and would otherwise sit at the head of
         # the queue holding a reservation it can't use.
+        added_gpu_reservation = False
         if 'slurm_reservation' not in slurm_keys and queue not in NO_RESERVATION_QUEUES:
             if gpu_is_requested(slurm_keys) and get_gpu_count(slurm_keys) < 3:
                 gpu_type = get_gpu_type(slurm_keys)
                 if default_gpu_type is None or gpu_type is None or gpu_type == default_gpu_type:
                     slurm_keys['slurm_reservation'] = DEFAULT_GPU_RESERVATIONS[queue]
+                    added_gpu_reservation = True
             elif not gpu_is_requested(slurm_keys):
                 slurm_keys['slurm_reservation'] = DEFAULT_RESERVATIONS[queue]
         # Key exists and reservation == false, remove reservation
@@ -123,7 +243,20 @@ class SlurmJobScheduler(JobScheduler):
         # Only add if user hasn't explicitly set gres
         if gpu_is_requested(slurm_keys) and default_gpu_type and 'slurm_gres' not in slurm_keys:
             gpu_count = get_gpu_count(slurm_keys)
-            slurm_keys['slurm_gres'] = f"gpu:{default_gpu_type}:{gpu_count}"
+            gpu_partition = DEFAULT_GPU_PARTITIONS.get(queue)
+            # Only spill under the auto-added FLEX reservation or no reservation;
+            # an explicit user reservation may not be FLEX, so don't override it.
+            spill_type = None
+            if added_gpu_reservation or 'slurm_reservation' not in slurm_keys:
+                reservation = (
+                    slurm_keys['slurm_reservation'] if added_gpu_reservation else None
+                )
+                spill_type = pick_spill_gpu_type(
+                    logger, queue, default_gpu_type, gpu_count, gpu_partition,
+                    reservation,
+                )
+            gpu_type = spill_type or default_gpu_type
+            slurm_keys['slurm_gres'] = f"gpu:{gpu_type}:{gpu_count}"
             # Remove slurm_gpus to avoid conflict with --gres (--gpus and --gres conflict)
             # Keep slurm_gpus_per_task and slurm_gpus_per_node as they may be needed
             # for proper per-task/per-node allocation
