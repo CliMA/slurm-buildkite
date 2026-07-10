@@ -25,7 +25,8 @@ const OVERRIDES  = "/resnick/groups/esm/ClimaArtifacts/artifacts/Overrides.toml"
 const SKIP_NAMES = Set([
     "crujra_forcing_data",  # 1.6 TB — too big to mirror
     "DYAMOND_summer_initial_conditions",  # unused
-    # Unused: not referenced in ClimaAtmos, ClimaCoupler, or ClimaLand@main. 
+    # Unused: not referenced in ClimaAtmos, ClimaCoupler, or
+    # ClimaLand@main. See docs/unused_artifacts.md.
     "DYAMOND_SUMMER_ICS_p14deg",                                   # 18G
     "era5_land_forcing_data2021",                                  # 26G
     "era5_monthly_averages_surface_single_level_1979_2024_hourly", # 23G
