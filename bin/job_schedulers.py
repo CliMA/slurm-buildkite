@@ -4,6 +4,8 @@ import os
 from os.path import join as joinpath
 import re
 import shutil
+import time
+import getpass
 from buildkite import get_buildkite_job_tags, BUILDKITE_EXCLUDE_NODES
 from buildkite import BUILDKITE_PATH, BUILDKITE_QUEUE
 
@@ -393,8 +395,152 @@ class PBSJobScheduler(JobScheduler):
             return job_id_match.group(1)
         return None
 
+# --- Spur (github.com/ROCm/spur) ---------------------------------------------
+# Spur speaks a Slurm-compatible CLI but omits several flags SlurmJobScheduler
+# relies on: `sbatch --parsable`, `--comment`, `scancel --name`, and
+# `squeue --name/--format=%k`. So this is modeled on PBSJobScheduler instead:
+#   * the buildkite url -> slurm job id map is kept in a local dbm file,
+#   * the scheduler is queried only for a liveness check (`squeue -h -u`),
+#   * the buildkite job UUID rides in the Slurm job *name* (`bk_<uuid>`), read
+#     back by bin/schedule_job.sh (Spur's sbatch forwards no script args).
+# Selected explicitly via JOB_SYSTEM=spur (Spur can't be autodetected apart from
+# Slurm, since it also provides sbatch/srun).
+SPUR_DATABASE_FILE = "spur_jobs.db"  # maps buildkite url -> "slurm_jobid|submit_epoch"
+SPUR_SUBMIT_GRACE = 45  # s: don't prune a just-submitted job before it appears in squeue
+
+class SpurJobScheduler(JobScheduler):
+    def submit_job(self, logger, build_log_dir, job):
+        job_id = job['id']
+        buildkite_url = job['web_url']
+        tags = get_buildkite_job_tags(job)
+
+        log_file = joinpath(build_log_dir, f"{job_id}.log")
+        # UUID rides in the job name (no --comment/--parsable on Spur).
+        cmd = [
+            'sbatch',
+            '-J', f'bk_{job_id}',
+            '-o', log_file,
+        ]
+
+        slurm_keys = {k: v for k, v in tags.items() if k.startswith('slurm_')}
+        for key, value in slurm_keys.items():
+            cmd.append(self.format_resource(key, value))
+
+        # Sensible single-agent defaults unless the step overrides them.
+        if 'slurm_nodes' not in slurm_keys:
+            cmd += ['-N', '1']
+        if 'slurm_ntasks' not in slurm_keys:
+            cmd += ['-n', '1']
+        if 'slurm_time' not in slurm_keys:
+            cmd += ['-t', DEFAULT_TIMELIMIT]
+
+        cmd.append(joinpath(BUILDKITE_PATH, 'bin/schedule_job.sh'))
+
+        logger.debug(f"Spur command: {' '.join(cmd)}")
+        try:
+            ret = subprocess.run(cmd, check=True, stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE, universal_newlines=True)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Spur job submission failed: {' '.join(e.cmd)}")
+            logger.error(f"Return code: {e.returncode}")
+            logger.error(f"stderr: {e.stderr}")
+            return None
+
+        # Spur prints "Submitted batch job <N>" (no --parsable).
+        slurm_job_id = self.parse_job_id(ret.stdout)
+        if not slurm_job_id:
+            logger.error(f"Failed to parse Spur job id from output: {ret.stdout!r}")
+            return None
+
+        logger.info(f"Submitted Spur job {slurm_job_id}, log {log_file}")
+        try:
+            with dbm.open(SPUR_DATABASE_FILE, 'c') as db:
+                db[buildkite_url] = f"{slurm_job_id}|{int(time.time())}"
+        except dbm.error as e:
+            logger.error(f"Failed to add job to database: {e}")
+        return slurm_job_id
+
+    # Returns {buildkite_url: [slurm_job_id]} for still-live jobs, pruning
+    # finished ones from the database (with a grace window for fresh submits).
+    def current_jobs(self, logger):
+        tracked = {}
+        try:
+            with dbm.open(SPUR_DATABASE_FILE, 'c') as db:
+                for k in db.keys():
+                    jobid, submit_ts = db[k].decode().split('|')
+                    tracked[k.decode()] = (jobid, int(submit_ts))
+        except dbm.error as e:
+            logger.error(f"Failed to read from database: {e}")
+            return {}
+
+        # Spur has no `squeue --name`; list this user's live job ids and match.
+        try:
+            squeue = subprocess.run(
+                ['squeue', '-h', '-u', getpass.getuser(), '-o', '%i'],
+                check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True)
+            active = set(squeue.stdout.split())
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to retrieve Spur job status: {e.stderr}")
+            # Transient squeue failure: keep everything tracked, prune next pass.
+            return {url: [jid] for url, (jid, _) in tracked.items()}
+
+        now = int(time.time())
+        current_jobs = {}
+        try:
+            with dbm.open(SPUR_DATABASE_FILE, 'w') as db:
+                for url, (jid, submit_ts) in tracked.items():
+                    if jid in active or (now - submit_ts) < SPUR_SUBMIT_GRACE:
+                        current_jobs[url] = [jid]
+                    else:
+                        logger.debug(f"Removing completed job from database: {jid}")
+                        if url.encode() in db:
+                            del db[url.encode()]
+        except dbm.error as e:
+            logger.error(f"Failed to remove completed jobs from database: {e}")
+            return {url: [jid] for url, (jid, _) in tracked.items()}
+        return current_jobs
+
+    def cancel_jobs(self, logger, job_ids):
+        # job_ids mirrors SlurmJobScheduler: a list of per-url lists. Flatten.
+        flat = [x for sublist in job_ids for x in sublist]
+        if not flat:
+            return
+        logger.info(f"Canceling {len(flat)} Spur job(s)")
+        logger.debug(f"Canceling Spur jobs: {', '.join(flat)}")
+        try:
+            subprocess.run(['scancel'] + flat, check=True, stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE, universal_newlines=True)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Error when canceling Spur jobs: {' '.join(e.cmd)}")
+            logger.error(f"Return code: {e.returncode}")
+            logger.error(f"stderr: {e.stderr}")
+        # Drop canceled jobs from the database.
+        try:
+            with dbm.open(SPUR_DATABASE_FILE, 'w') as db:
+                for k in list(db.keys()):
+                    if db[k].decode().split('|')[0] in flat:
+                        del db[k]
+        except dbm.error as e:
+            logger.error(f"Failed to update database after canceling jobs: {e}")
+
+    def format_resource(self, key, value):
+        key = key.split('slurm_', 1)[1].replace('_', '-')
+        if value.lower() == 'true':
+            return f"--{key}"
+        return f"--{key}={value}"
+
+    def parse_job_id(self, output):
+        match = re.search(r'Submitted batch job (\d+)', output or '')
+        return match.group(1) if match else None
+
 # Detect job scheduler by checking system executables and files.
 def get_job_scheduler():
+    # Spur (github.com/ROCm/spur) reuses Slurm's CLI (sbatch/srun/squeue), so it
+    # can't be told apart from Slurm by probing executables. Select it explicitly.
+    if os.environ.get('JOB_SYSTEM', '').lower() == 'spur':
+        return SpurJobScheduler()
+
     # Check for SLURM
     if any([
         shutil.which('sinfo'),

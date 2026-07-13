@@ -2,6 +2,10 @@
 
 PATH="${BUILDKITE_PATH}/bin:$PATH"
 
+# Buildkite job UUID. Slurm/PBS pass it as $1; Spur's sbatch forwards no script
+# args, so fall back to the job name (submitted as bk_<uuid>).
+JOBID="${1:-${SLURM_JOB_NAME#bk_}}"
+
 # Modules loaded here work in buildkite, but it is best to load modules 
 # within the agent once the cluster-specific script has been sourced
 
@@ -18,7 +22,7 @@ fi
 ls -l "${BUILDKITE_PATH}/bin/buildkite-agent"
 
 "${BUILDKITE_PATH}/bin/buildkite-agent" start \
-  --name "$BUILDKITE_QUEUE-$1-%n" \
+  --name "$BUILDKITE_QUEUE-$JOBID-%n" \
   --config "${BUILDKITE_PATH}/buildkite-agent.cfg" \
-  --acquire-job "$1" \
+  --acquire-job "$JOBID" \
   --tags "$TAGS"
