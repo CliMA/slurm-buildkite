@@ -10,6 +10,7 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 import os
+import re
 from datetime import date
 from os.path import join as joinpath
 
@@ -20,12 +21,38 @@ import job_schedulers
 # Time window to query buildkite jobs
 NHOURS = 96
 
+# Max concurrent Slurm jobs (pending + running) per buildkite pipeline slug.
+# All jobs share one service account, so a single pipeline flooding the queue
+# with high-priority (often un-runnable) jobs can consume the entire per-user
+# backfill window (bf_max_job_user) and starve every other pipeline. Capping
+# per-pipeline occupancy keeps the shared window populated with runnable work.
+# A job over the cap is left 'scheduled' in buildkite and reconsidered next poll.
+# Per-pipeline overrides go in PIPELINE_LIMITS; everything else uses the default.
+DEFAULT_PIPELINE_LIMIT = float("inf")  # no cap unless the pipeline is listed below
+PIPELINE_LIMITS = {
+    "oceananigans-distributed": 3,
+}
+
+def pipeline_slug_from_url(url):
+    """Extract the buildkite pipeline slug from a job/build web_url, e.g.
+    'https://buildkite.com/clima/climacoupler-ci/builds/9247#...' -> 'climacoupler-ci'."""
+    match = re.search(r'buildkite\.com/[^/]+/([^/?#]+)', url or '')
+    return match.group(1) if match else None
+
 try:
     scheduler = job_schedulers.get_job_scheduler()
 
     current_jobs = scheduler.current_jobs(logger)
     logger.info(f"Current jobs (submitted or started): {len(current_jobs)}")
     logger.debug(f"Current jobs: {current_jobs}")
+
+    # Count active (submitted + running) Slurm jobs per pipeline, so we can
+    # enforce per-pipeline concurrency caps below. Updated in-loop as we submit.
+    pipeline_counts = {}
+    for url, slurm_ids in current_jobs.items():
+        slug = pipeline_slug_from_url(url)
+        if slug:
+            pipeline_counts[slug] = pipeline_counts.get(slug, 0) + len(slurm_ids)
 
     # poll the buildkite API to check if there are any scheduled/running builds
     builds = all_started_builds(NHOURS)
@@ -90,8 +117,19 @@ try:
                 logger.error(f"New job missing queue. Pipeline: {pipeline_name}, {buildkite_url}")
                 continue
             elif queue == BUILDKITE_QUEUE:
+                # Enforce per-pipeline concurrency cap. A deferred job stays
+                # 'scheduled' in buildkite and is reconsidered on the next poll.
+                slug = pipeline_slug_from_url(buildkite_url)
+                limit = PIPELINE_LIMITS.get(slug, DEFAULT_PIPELINE_LIMIT)
+                if limit is not None and pipeline_counts.get(slug, 0) >= limit:
+                    logger.info(
+                        f"Deferring job, pipeline '{slug}' at cap {limit}: {buildkite_url}"
+                    )
+                    continue
                 logger.info(f"New job: {pipeline_name}, {buildkite_url}")
                 scheduler.submit_job(logger, log_dir, job)
+                # Count this submission so the cap holds within a single poll pass
+                pipeline_counts[slug] = pipeline_counts.get(slug, 0) + 1
 
     # Cancel jobs in canceled builds
     canceled_builds = all_canceled_builds()
