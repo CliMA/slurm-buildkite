@@ -13,6 +13,7 @@ DEFAULT_TIMELIMIT = '1:05:00'
 # Map from buildkite queue to slurm partition or PBS queue
 DEFAULT_PARTITIONS = {"gcp": "a3,a3mega", "derecho": "preempt@desched1", "test": "batch", "clima": "batch", "central": "expansion"}
 DEFAULT_GPU_PARTITIONS = {"gcp": "a3,a3mega", "derecho": "preempt@desched1", "test": "batch", "clima": "batch", "central": "gpu"}
+DEFAULT_PARTITION = os.environ.get("SLURM_DEFAULT_PARTITION", "default")
 
 # Map from buildkite queue to HPC reservation
 DEFAULT_RESERVATIONS = { "central": "clima_cpu", "derecho": "UCIT0011"}
@@ -270,9 +271,9 @@ class SlurmJobScheduler(JobScheduler):
         # Set partition depending on if a GPU has been requested
         # Fallback to 'default' if there is no default partition
         if gpu_is_requested(slurm_keys):
-            default_partition = DEFAULT_GPU_PARTITIONS[queue]
+            default_partition = DEFAULT_GPU_PARTITIONS.get(queue, DEFAULT_PARTITION)
         else:
-            default_partition = DEFAULT_PARTITIONS[queue]
+            default_partition = DEFAULT_PARTITIONS.get(queue, DEFAULT_PARTITION)
 
         agent_partition = tags.get('partition', default_partition)
         cmd.append(f"--partition={agent_partition}")

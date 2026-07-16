@@ -5,7 +5,8 @@ import os
 import re
 from os.path import join as joinpath, isfile
 
-BUILDS_ENDPOINT = 'https://api.buildkite.com/v2/organizations/clima/builds'
+BUILDKITE_ORGANIZATION = os.environ.get('BUILDKITE_ORGANIZATION', 'clima')
+BUILDS_ENDPOINT = f'https://api.buildkite.com/v2/organizations/{BUILDKITE_ORGANIZATION}/builds'
 
 BUILDKITE_PATH = os.environ['BUILDKITE_PATH']
 BUILDKITE_QUEUE = os.environ['BUILDKITE_QUEUE']
