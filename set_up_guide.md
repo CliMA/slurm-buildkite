@@ -35,6 +35,8 @@ This is the configuration file for the Buildkite agent.
 Add an entry for the `case` statement using your cluster's hostname. If there are multiple nodes, you may want to use a regex to match all possible hostnames.
 Within the entry, set `BUILDKITE_PATH` and `BUILDKITE_QUEUE`. `BUILDKITE_PATH` is the path to your slurm-buildkite folder. `BUILDKITE_QUEUE` is your cluster's Buildkite queue name and it is used to filter for the jobs that will run on your cluster.
 
+Optionally set `BUILDKITE_ORGANIZATION` (defaults to `clima`) if your pipelines live in a different Buildkite organization; it is used to build the builds-API URL, so no source edit is needed to point at another org.
+
 Lastly, check if an extra bashrc_location is needed.
 
 #### bin/job_schedulers.py
@@ -44,6 +46,8 @@ Add entries for:
 - `DEFAULT_GPU_PARTITIONS`: Map from buildkite queue to GPU slurm partition or PBS queue
 - `DEFAULT_RESERVATIONS`: Map from buildkite queue to HPC reservation name
 - `NO_RESERVATION_QUEUES`: For clusters with no default reservations
+
+Queues that are not present in `DEFAULT_PARTITIONS` / `DEFAULT_GPU_PARTITIONS` fall back to the `SLURM_DEFAULT_PARTITION` environment variable (default `default`). A cluster with a single partition can just set `SLURM_DEFAULT_PARTITION` instead of editing the maps.
 
 
 #### hooks/environment
