@@ -117,7 +117,7 @@ if [ "$#" -eq 0 ]; then
             dest="/clima/${name}"
             if [ ! -d "$dest" ]; then
                 echo "Cloning $repo..." >> "$CLONE_LOG"
-                git clone --depth=1 --single-branch \
+                git clone --filter=blob:none \
                     "https://github.com/${repo}.git" "$dest" \
                     >> "$CLONE_LOG" 2>&1 &
                 pids+=($!)
