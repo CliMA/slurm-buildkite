@@ -1,9 +1,11 @@
 import subprocess
 import dbm
+import json
 import os
 from os.path import join as joinpath
 import re
 import shutil
+import requests
 from buildkite import get_buildkite_job_tags, BUILDKITE_EXCLUDE_NODES
 from buildkite import BUILDKITE_PATH, BUILDKITE_QUEUE
 
@@ -526,8 +528,262 @@ class PBSJobScheduler(JobScheduler):
             return job_id_match.group(1)
         return None
 
+RUNPOD_DATABASE_FILE = "runpod_jobs"
+RUNPOD_API_URL = "https://api.runpod.io/graphql"
+
+# Default Runpod GPU type per number of GPUs requested
+DEFAULT_RUNPOD_GPU = "NVIDIA L40S"
+
+class RunpodJobScheduler(JobScheduler):
+    def __init__(self):
+        self.api_key = os.environ.get('RUNPOD_API_KEY', '')
+        self.docker_image = os.environ.get('RUNPOD_DOCKER_IMAGE', '')
+        self.agent_token = os.environ.get('BUILDKITE_AGENT_TOKEN', '')
+        if not self.agent_token:
+            # Parse agent token from buildkite-agent.cfg
+            cfg_path = joinpath(BUILDKITE_PATH, 'buildkite-agent.cfg')
+            with open(cfg_path, 'r') as f:
+                for line in f:
+                    if line.startswith('token='):
+                        self.agent_token = line.split('=', 1)[1].strip().strip('"')
+                        break
+        if not self.api_key:
+            raise ValueError("RUNPOD_API_KEY environment variable is required for Runpod scheduler")
+        if not self.docker_image:
+            raise ValueError("RUNPOD_DOCKER_IMAGE environment variable is required (e.g. 'your-registry/clima-buildkite:latest')")
+
+    def _graphql(self, query, variables=None, logger=None):
+        payload = {"query": query}
+        if variables:
+            payload["variables"] = variables
+        if logger:
+            # Log query without variables (which may contain secrets)
+            logger.debug(f"Runpod API request: {payload['query'].strip()}")
+        resp = requests.post(
+            RUNPOD_API_URL,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}",
+            },
+            json=payload,
+        )
+        if logger:
+            logger.debug(f"Runpod API response: HTTP {resp.status_code}")
+        resp.raise_for_status()
+        data = resp.json()
+        if logger:
+            logger.debug(f"Runpod API response body: {json.dumps(data, default=str)}")
+        if "errors" in data:
+            raise RuntimeError(f"Runpod API error: {data['errors']}")
+        return data
+
+    def _get_active_pods(self, logger=None):
+        """Return a dict of {pod_name: pod_id} for all active Runpod pods."""
+        query = "query { myself { pods { id name desiredStatus } } }"
+        result = self._graphql(query, logger=logger)
+        return {
+            pod["name"]: pod["id"]
+            for pod in result["data"]["myself"]["pods"]
+        }
+
+    def submit_job(self, logger, build_log_dir, job):
+        job_id = job['id']
+        buildkite_url = job['web_url']
+        tags = get_buildkite_job_tags(job)
+        logger.debug(f"Runpod submit_job: job_id={job_id}, tags={tags}")
+
+        # Check if a pod for this job already exists on Runpod
+        pod_name = f"buildkite-{job_id[:8]}"
+        try:
+            active_pods = self._get_active_pods(logger)
+            logger.debug(f"Runpod active pods: {active_pods}")
+            if pod_name in active_pods:
+                existing_id = active_pods[pod_name]
+                logger.info(f"Pod already exists for job {job_id}: {existing_id}, skipping deploy")
+                # Ensure it's tracked in the local database
+                try:
+                    with dbm.open(RUNPOD_DATABASE_FILE, 'c') as db:
+                        db[buildkite_url] = existing_id
+                except dbm.error:
+                    pass
+                return existing_id
+        except Exception as e:
+            logger.warning(f"Could not check for existing pods: {e}, proceeding with deploy")
+
+        # Extract Runpod-specific tags (runpod_gpu, runpod_gpus, runpod_volume, etc.)
+        runpod_tags = {k: v for k, v in tags.items() if k.startswith('runpod_')}
+        gpu_type = runpod_tags.get('runpod_gpu', DEFAULT_RUNPOD_GPU)
+        gpu_count = int(runpod_tags.get('runpod_gpus', '1'))
+        volume_size = int(runpod_tags.get('runpod_volume_gb', '0'))
+        # Default container disk sized to hold the prefetched artifact set
+        # (~37 GB extracted) + image + room to work. Override per-job with
+        # the runpod_container_disk_gb tag.
+        container_disk = int(runpod_tags.get('runpod_container_disk_gb', '100'))
+        modules = tags.get('modules', '')
+
+        env_vars = {
+            "BUILDKITE_AGENT_TOKEN": self.agent_token,
+            "BUILDKITE_JOB_ID": job_id,
+            "BUILDKITE_QUEUE": "runpod",
+            "RUNPOD_API_KEY": self.api_key,
+        }
+        github_ssh_key = os.environ.get('GITHUB_SSH_KEY', '')
+        if github_ssh_key:
+            env_vars["GITHUB_SSH_KEY"] = github_ssh_key
+        if modules:
+            env_vars["BUILDKITE_MODULES"] = modules
+
+        # Convert env dict to Runpod format
+        env_list = [{"key": k, "value": v} for k, v in env_vars.items()]
+        logger.debug(f"Runpod deploy config: image={self.docker_image}, gpu={gpu_type} x{gpu_count}, volume={volume_size}GB, containerDisk={container_disk}GB")
+
+        query = """
+        mutation podFindAndDeployOnDemand($input: PodFindAndDeployOnDemandInput!) {
+            podFindAndDeployOnDemand(input: $input) {
+                id
+                name
+                desiredStatus
+            }
+        }
+        """
+        variables = {
+            "input": {
+                "name": f"buildkite-{job_id[:8]}",
+                "imageName": self.docker_image,
+                "gpuTypeId": gpu_type,
+                "gpuCount": gpu_count,
+                "volumeInGb": volume_size,
+                "containerDiskInGb": container_disk,
+                "env": env_list,
+            }
+        }
+
+        try:
+            result = self._graphql(query, variables, logger=logger)
+            pod = result["data"]["podFindAndDeployOnDemand"]
+            pod_id = pod["id"]
+            logger.info(f"Runpod pod deployed: {pod_id} for job {job_id}, GPU: {gpu_type} x{gpu_count} - https://www.console.runpod.io/pods?id={pod_id}")
+
+            # Track the pod in our local database
+            try:
+                with dbm.open(RUNPOD_DATABASE_FILE, 'c') as db:
+                    db[buildkite_url] = pod_id
+            except dbm.error as e:
+                logger.error(f"Failed to add Runpod job to database: {e}")
+
+            return pod_id
+
+        except Exception as e:
+            logger.error(f"Runpod pod deployment failed for job {job_id}: {e}")
+            return None
+
+    def current_jobs(self, logger):
+        current_jobs = {}
+        try:
+            with dbm.open(RUNPOD_DATABASE_FILE, 'c') as db:
+                for k in db.keys():
+                    current_jobs[k.decode()] = db[k].decode()
+        except dbm.error as e:
+            logger.error(f"Failed to read Runpod job database: {e}")
+            return {}
+
+        logger.debug(f"Runpod local database entries: {current_jobs}")
+
+        # Query Runpod for active pods to prune completed ones
+        # and catch any pods the local db missed
+        try:
+            active_pods = self._get_active_pods(logger)
+            active_pod_ids = set(active_pods.values())
+        except Exception as e:
+            logger.error(f"Failed to query Runpod pods: {e}")
+            return current_jobs
+
+        logger.debug(f"Runpod active pods: {active_pods}")
+
+        # Remove db entries whose pods no longer exist on Runpod
+        try:
+            with dbm.open(RUNPOD_DATABASE_FILE, 'w') as db:
+                for url, pod_id in list(current_jobs.items()):
+                    if pod_id not in active_pod_ids:
+                        logger.debug(f"Removing completed Runpod pod from database: {pod_id}")
+                        del db[url.encode()]
+                        del current_jobs[url]
+        except dbm.error as e:
+            logger.error(f"Failed to prune Runpod job database: {e}")
+
+        # Add any active "buildkite-*" pods not in our db
+        # (covers pods deployed before a db crash or manual intervention)
+        db_pod_ids = set(current_jobs.values())
+        for pod_name, pod_id in active_pods.items():
+            if pod_name.startswith("buildkite-") and pod_id not in db_pod_ids:
+                # Use pod_name as a placeholder URL key so poll.py won't re-submit
+                placeholder = f"runpod://{pod_name}"
+                current_jobs[placeholder] = pod_id
+                logger.info(f"Recovered untracked Runpod pod: {pod_name} ({pod_id})")
+                try:
+                    with dbm.open(RUNPOD_DATABASE_FILE, 'c') as db:
+                        db[placeholder] = pod_id
+                except dbm.error:
+                    pass
+
+        return current_jobs
+
+    def cleanup_stale_pods(self, logger, active_buildkite_urls):
+        """Terminate Runpod pods whose Buildkite jobs are no longer scheduled or running.
+
+        Called by the poller after processing builds. active_buildkite_urls is the
+        set of job web_urls that are still in a 'scheduled' or 'running' state.
+        Pods not associated with any active job are terminated.
+        """
+        try:
+            with dbm.open(RUNPOD_DATABASE_FILE, 'c') as db:
+                for k in list(db.keys()):
+                    url = k.decode()
+                    pod_id = db[k].decode()
+                    if url not in active_buildkite_urls:
+                        logger.info(f"Cleaning up stale Runpod pod {pod_id} (job no longer active: {url})")
+                        self._terminate_pod(logger, pod_id)
+        except dbm.error as e:
+            logger.error(f"Failed during stale pod cleanup: {e}")
+
+    def cancel_jobs(self, logger, job_ids):
+        # job_ids here are pod IDs (strings, not lists)
+        for pod_id in job_ids:
+            # Handle both string and list values from current_jobs
+            if isinstance(pod_id, list):
+                for p in pod_id:
+                    self._terminate_pod(logger, p)
+            else:
+                self._terminate_pod(logger, pod_id)
+
+    def _terminate_pod(self, logger, pod_id):
+        query = """
+        mutation podTerminate($input: PodTerminateInput!) {
+            podTerminate(input: $input)
+        }
+        """
+        try:
+            self._graphql(query, {"input": {"podId": pod_id}}, logger=logger)
+            logger.info(f"Terminated Runpod pod: {pod_id}")
+        except Exception as e:
+            logger.error(f"Failed to terminate Runpod pod {pod_id}: {e}")
+
+        try:
+            with dbm.open(RUNPOD_DATABASE_FILE, 'w') as db:
+                for k in db.keys():
+                    if db[k].decode() == pod_id:
+                        del db[k]
+                        break
+        except dbm.error as e:
+            logger.error(f"Failed to remove pod {pod_id} from database: {e}")
+
+
 # Detect job scheduler by checking system executables and files.
 def get_job_scheduler():
+    # Runpod queue does not need local HPC tools — use the Runpod API
+    if BUILDKITE_QUEUE == "runpod":
+        return RunpodJobScheduler()
+
     # Check for SLURM
     if any([
         shutil.which('sinfo'),
@@ -536,7 +792,7 @@ def get_job_scheduler():
         os.path.exists('/etc/slurm/slurm.conf')
     ]):
         return SlurmJobScheduler()
-    
+
     # Check for PBS
     if any([
         shutil.which('qstat'),
