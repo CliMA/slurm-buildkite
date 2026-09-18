@@ -66,6 +66,19 @@ Ensure that previously created TMPDIRs. As before, this can either be done with 
 #### Optional: hooks/pre-command
 - Ensure that output folders have proper permissions
 
+### Optional: Agent-token-only mode
+
+By default `bin/poll.py` polls Buildkite's builds REST API, which requires a *user* API token (`.buildkite_token`, step above). Some orgs are only issued a Buildkite **cluster agent token** and have no user API token available at all. For those, `bin/poll.py` supports a second mode that polls Buildkite's [Agent Metrics API](https://buildkite.com/docs/agent/v3/cli-start#agent-metrics) instead, using only the agent token already configured in `buildkite-agent.cfg`.
+
+To enable it, set in your `bin/cron.sh` case entry:
+- `BUILDKITE_POLL_MODE=metrics`
+- `BUILDKITE_QUEUES` — comma-separated list of Buildkite queues to watch (defaults to `BUILDKITE_QUEUE`)
+- Optionally `MAX_AGENTS_PER_QUEUE` (default `10`), `SLURM_QOS`, `SLURM_TIMELIMIT` (default `01:05:00`), `SLURM_GPU_TYPE`
+
+Because there's no per-job data available from the Metrics API, agents launched in this mode are generic (they pick up whatever job is next on the queue, rather than a specific job via `--acquire-job`), and GPU sizing comes from the queue name instead of per-job tags: a queue named `<base>_<N>gpu` (e.g. `central_2gpu`) requests `N` GPUs on the partition/GPU type configured for `<base>` in `bin/job_schedulers.py`; a bare queue name (no suffix) is treated as CPU-only.
+
+Note for some Slurm variants (e.g. those that copy batch scripts to a spool directory before running them): environment variables set by the submitting shell are not always propagated into the batch script. `bin/metrics_poll.py` works around this by passing `BUILDKITE_PATH` as a positional argument to `bin/schedule_agent.sh` rather than relying on env inheritance — keep this in mind if you extend this mode further.
+
 ### Testing
 
 You can test this setup by setting the `BUILDKITE_QUEUE` to `test` and manually running the cronjob `bin/cron.sh`. Logs from the cron job will be written to `logs/YYYY-MM-DD/cron`. 

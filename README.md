@@ -17,6 +17,10 @@ Some clusters are not web-accessible, so we are unable to use webhooks to schedu
 
 Unlike regular Buildkite builds, we don't run each job in an isolated environment, so the checkout only happens on the first job (usually the pipeline upload) and the state is shared between all jobs in the build.
 
+### Agent-token-only mode
+
+The REST-based polling above requires a Buildkite *user* API token. Orgs that are only issued a cluster *agent* token can instead set `BUILDKITE_POLL_MODE=metrics`, which switches [`bin/poll.py`](https://github.com/CliMA/slurm-buildkite/blob/master/bin/poll.py) to [`bin/metrics_poll.py`](https://github.com/CliMA/slurm-buildkite/blob/master/bin/metrics_poll.py). This mode polls Buildkite's Agent Metrics API for each queue's scheduled-job and idle/busy-agent counts, and launches generic agents (via [`bin/schedule_agent.sh`](https://github.com/CliMA/slurm-buildkite/blob/master/bin/schedule_agent.sh), sized from the queue's name rather than per-job tags) to close the gap. See the "Agent-token-only mode" section of the [set-up guide](https://github.com/CliMA/slurm-buildkite/blob/master/set_up_guide.md) for configuration details.
+
 
 ## Passing options to Slurm
 
