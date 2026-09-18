@@ -3,8 +3,44 @@
 set -euo pipefail # exit on failure or unset variable
 set -v
 
+# Shared copy of the repo that the clone below reads from, so builds don't
+# re-download the whole history each time. BUILDKITE_BUILD_CHECKOUT_PATH
+# includes the build number (see hooks/environment), so otherwise every build
+# starts from nothing.
+mirror_root="${BUILDKITE_GIT_MIRROR_PATH:-${BUILDKITE_BUILD_PATH}/git-mirrors}"
+# Named after the repo URL, so pipelines sharing a repo share one copy.
+mirror_name="$(printf '%s' "${BUILDKITE_REPO}" | tr -c 'A-Za-z0-9._-' '-')"
+mirror_path="${mirror_root}/${mirror_name}.git"
+
+# Never fatal: on any failure we clone straight from BUILDKITE_REPO as before.
+update_git_mirror() {
+    mkdir -p "${mirror_root}"
+    # Lock, since many steps and builds start at once. If the job holding it is
+    # stuck, give up after 15 min and clone from the remote rather than wait.
+    (
+        flock --timeout 900 9 || exit 1
+        if [ -d "${mirror_path}" ]; then
+            # Also set here so copies made before this hook existed pick it up.
+            git -C "${mirror_path}" config gc.auto 0
+            git -C "${mirror_path}" remote update --prune
+        else
+            # Clone aside and rename, so a job killed part-way through (this
+            # can take over an hour on a slow link) leaves no half-copy for the
+            # next build to mistake for a usable one.
+            # gc.auto=0: a garbage collection here could delete objects that a
+            # still-running clone is reading.
+            rm -rf "${mirror_path}.incoming"
+            git clone --mirror -c gc.auto=0 "${BUILDKITE_REPO}" "${mirror_path}.incoming"
+            mv "${mirror_path}.incoming" "${mirror_path}"
+        fi
+    ) 9>"${mirror_root}/${mirror_name}.lock"
+}
+
 if [ ! -d "${BUILDKITE_BUILD_CHECKOUT_PATH}/.git" ]; then
-    echo "--- Init clone and checkout" 
+    echo "--- Update git mirror"
+    update_git_mirror || echo "Mirror update failed; cloning without it"
+
+    echo "--- Init clone and checkout"
     if [ "$BUILDKITE_COMMIT" = "HEAD" ]; then
         git clone \
             --depth=1 \
@@ -14,6 +50,7 @@ if [ ! -d "${BUILDKITE_BUILD_CHECKOUT_PATH}/.git" ]; then
             "${BUILDKITE_BUILD_CHECKOUT_PATH}"
     else
         git clone \
+            --reference-if-able "${mirror_path}" \
             --branch "${BUILDKITE_BRANCH}" \
             ${BUILDKITE_GIT_CLONE_FLAGS} \
             ${BUILDKITE_REPO} \
