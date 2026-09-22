@@ -28,10 +28,6 @@ DEFAULT_PBS_SERVERS = {"derecho": "desched1"}
 # Queues not listed here will not have a default GPU type applied
 DEFAULT_GPU_TYPES = {"central": "p100"}
 
-# Most GPUs a job may request and still run under the default GPU reservation.
-# Jobs above this run outside the reservation, on the open partition.
-MAX_GPUS_PER_RESERVATION = 2
-
 # Search for the word "gpu" in the given dict
 def gpu_is_requested(scheduler_tags):
     found = any("gpu" in key or "gpu" in value for key, value in scheduler_tags.items())
@@ -200,6 +196,65 @@ def pick_spill_gpu_type(logger, queue, preferred, gpu_count, partition, reservat
         logger.warning(f"GPU spill check failed ({e}); keeping {preferred}")
         return None
 
+def set_reservation(queue, slurm_keys):
+    """Fill in `slurm_reservation` from the queue defaults, honoring an explicit
+    `slurm_reservation: false` as a request for none. Return the GPU reservation
+    that was added, or None.
+
+    The GPU reservation is FLEX, so a job holding it may also use resources
+    outside it. Attaching it never restricts where the job can run, whatever its
+    size, so every GPU job gets it. A job that explicitly asks for a GPU type
+    other than the queue default does not, since the reservation's nodes can
+    never satisfy that request."""
+    if slurm_keys.get("slurm_reservation", "").lower() == "false":
+        del slurm_keys['slurm_reservation']
+        return None
+    if 'slurm_reservation' in slurm_keys or queue in NO_RESERVATION_QUEUES:
+        return None
+
+    if not gpu_is_requested(slurm_keys):
+        reservation = DEFAULT_RESERVATIONS.get(queue)
+        if reservation:
+            slurm_keys['slurm_reservation'] = reservation
+        return None
+
+    default_gpu_type = DEFAULT_GPU_TYPES.get(queue)
+    gpu_type = get_gpu_type(slurm_keys)
+    if default_gpu_type and gpu_type and gpu_type != default_gpu_type:
+        return None
+    reservation = DEFAULT_GPU_RESERVATIONS.get(queue)
+    if reservation:
+        slurm_keys['slurm_reservation'] = reservation
+    return reservation
+
+def set_gres(logger, queue, slurm_keys, gpu_reservation):
+    """Fill in `slurm_keys["slurm_gres"]` with the queue's default GPU type, or
+    with a fallback type when the default is congested. No-op unless the job
+    asks for a GPU, the queue has a default GPU type, and the job set no
+    `slurm_gres` of its own. `gpu_reservation` is the reservation
+    `set_reservation` added, if any."""
+    default_gpu_type = DEFAULT_GPU_TYPES.get(queue)
+    if not gpu_is_requested(slurm_keys) or not default_gpu_type:
+        return
+    if 'slurm_gres' in slurm_keys:
+        return
+
+    gpu_count = get_gpu_count(slurm_keys)
+    # Spill only under the auto-added FLEX reservation or no reservation; an
+    # explicit user reservation may not be FLEX, so don't override it.
+    spill_type = None
+    if gpu_reservation or 'slurm_reservation' not in slurm_keys:
+        spill_type = pick_spill_gpu_type(
+            logger, queue, default_gpu_type, gpu_count,
+            DEFAULT_GPU_PARTITIONS.get(queue), gpu_reservation,
+        )
+    gpu_type = spill_type or default_gpu_type
+    slurm_keys['slurm_gres'] = f"gpu:{gpu_type}:{gpu_count}"
+    # --gpus, --gpus-per-task, and --gpus-per-node all conflict with --gres
+    slurm_keys.pop('slurm_gpus', None)
+    slurm_keys.pop('slurm_gpus_per_task', None)
+    slurm_keys.pop('slurm_gpus_per_node', None)
+
 class JobScheduler:
     def submit_job(self, logger, build_log_dir, job):
         raise NotImplementedError("Subclass must implement submit_job")
@@ -224,56 +279,9 @@ class SlurmJobScheduler(JobScheduler):
             f"--output={joinpath(build_log_dir, 'slurm-%j.log')}",
         ]
         slurm_keys = {k: v for k, v in tags.items() if k.startswith('slurm_')}
-        default_gpu_type = DEFAULT_GPU_TYPES.get(queue)
 
-        # No reservation, add default if the job fits MAX_GPUS_PER_RESERVATION.
-        # Larger jobs can run outside the reservation. Don't attach the GPU reservation to a job
-        # that explicitly requests a different GPU type (e.g. L40S): it can never
-        # run on the reservation's nodes, and would otherwise sit at the head of
-        # the queue holding a reservation it can't use.
-        added_gpu_reservation = False
-        if 'slurm_reservation' not in slurm_keys and queue not in NO_RESERVATION_QUEUES:
-            if gpu_is_requested(slurm_keys) and get_gpu_count(slurm_keys) <= MAX_GPUS_PER_RESERVATION:
-                gpu_type = get_gpu_type(slurm_keys)
-                if default_gpu_type is None or gpu_type is None or gpu_type == default_gpu_type:
-                    slurm_keys['slurm_reservation'] = DEFAULT_GPU_RESERVATIONS[queue]
-                    added_gpu_reservation = True
-            elif not gpu_is_requested(slurm_keys):
-                slurm_keys['slurm_reservation'] = DEFAULT_RESERVATIONS[queue]
-        # Key exists and reservation == false, remove reservation
-        elif slurm_keys.get("slurm_reservation", "").lower() == "false":
-            del slurm_keys['slurm_reservation']
-
-        # If the queue has a default GPU type, set --gres=gpu:type:N
-        # Only add if user hasn't explicitly set gres
-        if gpu_is_requested(slurm_keys) and default_gpu_type and 'slurm_gres' not in slurm_keys:
-            gpu_count = get_gpu_count(slurm_keys)
-            gpu_partition = DEFAULT_GPU_PARTITIONS.get(queue)
-            # Only spill jobs small enough for the reservation, and only under
-            # the auto-added FLEX reservation or no reservation; an explicit user
-            # reservation may not be FLEX, so don't override it. Bigger jobs keep
-            # the default type: they run outside the reservation, so the
-            # partition-only free-GPU check can't see the reserved default-type
-            # nodes and would spill them onto pricier GPUs.
-            spill_type = None
-            if gpu_count <= MAX_GPUS_PER_RESERVATION and (
-                added_gpu_reservation or 'slurm_reservation' not in slurm_keys
-            ):
-                reservation = (
-                    slurm_keys['slurm_reservation'] if added_gpu_reservation else None
-                )
-                spill_type = pick_spill_gpu_type(
-                    logger, queue, default_gpu_type, gpu_count, gpu_partition,
-                    reservation,
-                )
-            gpu_type = spill_type or default_gpu_type
-            slurm_keys['slurm_gres'] = f"gpu:{gpu_type}:{gpu_count}"
-            # Remove slurm_gpus to avoid conflict with --gres (--gpus and --gres conflict)
-            # Keep slurm_gpus_per_task and slurm_gpus_per_node as they may be needed
-            # for proper per-task/per-node allocation
-            slurm_keys.pop('slurm_gpus', None)
-            slurm_keys.pop('slurm_gpus_per_task', None)
-            slurm_keys.pop('slurm_gpus_per_node', None)
+        gpu_reservation = set_reservation(queue, slurm_keys)
+        set_gres(logger, queue, slurm_keys, gpu_reservation)
 
         for key, value in slurm_keys.items():
             cmd.append(self.format_resource(key, value))
