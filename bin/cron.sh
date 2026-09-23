@@ -51,4 +51,8 @@ cd $BUILDKITE_PATH
 DATE="$(date +\%Y-\%m-\%d)"
 mkdir -p "logs/$DATE"
 
-bin/poll.py &>> "logs/$DATE/cron"
+# Skip this poll if the previous one for this queue still holds the lock
+flock -n -E 75 "logs/poll.$BUILDKITE_QUEUE.lock" bin/poll.py &>> "logs/$DATE/cron"
+if [ $? -eq 75 ]; then
+    echo "$(date -Is) - INFO: poll.py for $BUILDKITE_QUEUE already running, skipped" >> "logs/$DATE/cron"
+fi

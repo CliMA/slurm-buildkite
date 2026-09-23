@@ -11,6 +11,7 @@ logger.addHandler(handler)
 
 import os
 import re
+import time
 from datetime import date
 from os.path import join as joinpath
 
@@ -20,6 +21,9 @@ import job_schedulers
 
 # Time window to query buildkite jobs
 NHOURS = 96
+
+# Seconds a poll spends submitting jobs before leaving the rest for the next poll
+SUBMIT_TIME_BUDGET = 30
 
 # Max concurrent Slurm jobs (pending + running) per buildkite pipeline slug.
 # All jobs share one service account, so a single pipeline flooding the queue
@@ -56,6 +60,8 @@ try:
 
     # poll the buildkite API to check if there are any scheduled/running builds
     builds = all_started_builds(NHOURS)
+    builds_fetched_at = time.monotonic()
+    num_deferred = 0
 
     # Accumulate jobs to be canceled in one batch 
     jobs_to_cancel = []
@@ -117,6 +123,9 @@ try:
                 logger.error(f"New job missing queue. Pipeline: {pipeline_name}, {buildkite_url}")
                 continue
             elif queue == BUILDKITE_QUEUE:
+                if time.monotonic() - builds_fetched_at > SUBMIT_TIME_BUDGET:
+                    num_deferred += 1
+                    continue
                 # Enforce per-pipeline concurrency cap. A deferred job stays
                 # 'scheduled' in buildkite and is reconsidered on the next poll.
                 slug = pipeline_slug_from_url(buildkite_url)
@@ -130,6 +139,9 @@ try:
                 scheduler.submit_job(logger, log_dir, job)
                 # Count this submission so the cap holds within a single poll pass
                 pipeline_counts[slug] = pipeline_counts.get(slug, 0) + 1
+
+    if num_deferred:
+        logger.info(f"Submit time budget reached, deferred {num_deferred} jobs to next poll")
 
     # Cancel jobs in canceled builds
     canceled_builds = all_canceled_builds()
