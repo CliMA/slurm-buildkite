@@ -20,6 +20,30 @@ case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
     "gcp")
         chmod 755 $BUILDKITE_BUILD_PATH
         ;;
+    "runpod")
+        # Block until the background prefetch (started by docker/start.sh)
+        # finishes. Mostly already done by now thanks to overlap with agent
+        # startup + git checkout. The script touches .ready unconditionally;
+        # partial failures still proceed (Julia will surface a precise error
+        # at @artifact_str time if it actually needs a missing artifact).
+        echo "--- Waiting for clima-artifacts prefetch"
+        waited=0
+        while [ ! -e /clima-artifacts/.ready ] && [ ! -e /clima-artifacts/.failed ]; do
+            if [ "$waited" -ge 1800 ]; then
+                echo "ERROR: timed out after 1800s" >&2
+                tail -50 /var/log/clima-artifacts.log >&2 || true
+                exit 1
+            fi
+            sleep 2
+            waited=$((waited + 2))
+        done
+        if [ -e /clima-artifacts/.failed ]; then
+            echo "ERROR: artifact prefetch failed — see /var/log/clima-artifacts.log" >&2
+            tail -50 /var/log/clima-artifacts.log >&2 || true
+            exit 1
+        fi
+        echo "clima-artifacts ready (waited ${waited}s)"
+        ;;
 esac
 
 set +v
