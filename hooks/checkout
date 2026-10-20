@@ -19,10 +19,19 @@ update_git_mirror() {
     # stuck, give up after 15 min and clone from the remote rather than wait.
     (
         flock --timeout 900 9 || exit 1
+        # A copy can exist but be unusable, e.g. if the scratch purge deleted
+        # some of its files. Check it with --git-dir rather than -C, since -C
+        # would search parent directories for a repo. Remove a broken copy so
+        # it is rebuilt below instead of failing on every build.
+        if [ -d "${mirror_path}" ] &&
+            ! git --git-dir="${mirror_path}" rev-parse --is-bare-repository >/dev/null 2>&1; then
+            echo "Mirror at ${mirror_path} is not a valid repo; rebuilding it"
+            rm -rf "${mirror_path}"
+        fi
         if [ -d "${mirror_path}" ]; then
             # Also set here so copies made before this hook existed pick it up.
-            git -C "${mirror_path}" config gc.auto 0
-            git -C "${mirror_path}" remote update --prune
+            git --git-dir="${mirror_path}" config gc.auto 0
+            git --git-dir="${mirror_path}" remote update --prune
         else
             # Clone aside and rename, so a job killed part-way through (this
             # can take over an hour on a slow link) leaves no half-copy for the
