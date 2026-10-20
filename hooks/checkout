@@ -22,7 +22,9 @@ update_git_mirror() {
         # A copy can exist but be unusable, e.g. if the scratch purge deleted
         # some of its files. Check it with --git-dir rather than -C, since -C
         # would search parent directories for a repo. Remove a broken copy so
-        # it is rebuilt below instead of failing on every build.
+        # it is rebuilt below instead of failing on every build. Removing it is
+        # safe for other jobs: clones skip a copy that is not a valid repo, and
+        # finished checkouts copy what they need from it (see the repack below).
         if [ -d "${mirror_path}" ] &&
             ! git --git-dir="${mirror_path}" rev-parse --is-bare-repository >/dev/null 2>&1; then
             echo "Mirror at ${mirror_path} is not a valid repo; rebuilding it"
@@ -67,6 +69,14 @@ if [ ! -d "${BUILDKITE_BUILD_CHECKOUT_PATH}/.git" ]; then
     fi
     cd "${BUILDKITE_BUILD_CHECKOUT_PATH}"
     git checkout -f "${BUILDKITE_COMMIT}"
+    # Copy the objects borrowed from the shared copy into this checkout, so
+    # later steps keep working if the shared copy is purged or rebuilt. This is
+    # what `git clone --dissociate` does, run as a separate step so it works
+    # the same across git versions. Not fatal: the checkout is usable without it.
+    if [ -f .git/objects/info/alternates ]; then
+        { git repack -a -d -q && rm -f .git/objects/info/alternates; } ||
+            echo "Could not detach checkout from the shared copy; continuing"
+    fi
     # emulate https://github.com/buildkite/agent/blob/7e0166eebed5bf3cc289edae97145803429e75f9/bootstrap/bootstrap.go#L1448-L1458
     if ! buildkite-agent meta-data exists "buildkite:git:commit" ; then
         echo "Sending Git commit information to Buildkite"
