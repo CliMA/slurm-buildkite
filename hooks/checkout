@@ -14,6 +14,8 @@ mirror_path="${mirror_root}/${mirror_name}.git"
 
 # Never fatal: on any failure we clone straight from BUILDKITE_REPO as before.
 update_git_mirror() {
+    # An empty URL would make the mirror path "${mirror_root}/.git".
+    [ -n "${BUILDKITE_REPO}" ] || return 1
     mkdir -p "${mirror_root}"
     # Lock, since many steps and builds start at once. If the job holding it is
     # stuck, give up after 15 min and clone from the remote rather than wait.
@@ -21,14 +23,17 @@ update_git_mirror() {
         flock --timeout 900 9 || exit 1
         # A copy can exist but be unusable, e.g. if the scratch purge deleted
         # some of its files. Check it with --git-dir rather than -C, since -C
-        # would search parent directories for a repo. Remove a broken copy so
-        # it is rebuilt below instead of failing on every build. Removing it is
+        # would search parent directories for a repo. Move a broken copy aside
+        # so it is rebuilt below instead of failing on every build. Moving it is
         # safe for other jobs: clones skip a copy that is not a valid repo, and
         # finished checkouts copy what they need from it (see the repack below).
+        # The last broken copy is kept, rather than deleted, so a copy judged
+        # broken by mistake can be restored and a broken one can be inspected.
         if [ -d "${mirror_path}" ] &&
             ! git --git-dir="${mirror_path}" rev-parse --is-bare-repository >/dev/null 2>&1; then
-            echo "Mirror at ${mirror_path} is not a valid repo; rebuilding it"
-            rm -rf "${mirror_path}"
+            echo "Mirror at ${mirror_path} is not a valid repo; moving it to ${mirror_path}.broken and rebuilding"
+            rm -rf "${mirror_path}.broken"
+            mv "${mirror_path}" "${mirror_path}.broken"
         fi
         if [ -d "${mirror_path}" ]; then
             # Also set here so copies made before this hook existed pick it up.
