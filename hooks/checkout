@@ -9,79 +9,98 @@ set -v
 # starts from nothing.
 mirror_root="${BUILDKITE_GIT_MIRROR_PATH:-${BUILDKITE_BUILD_PATH}/git-mirrors}"
 # Named after the repo URL, so pipelines sharing a repo share one copy.
-mirror_name="$(printf '%s' "${BUILDKITE_REPO}" | tr -c 'A-Za-z0-9._-' '-')"
+mirror_name="$(printf '%s' "${BUILDKITE_REPO%.git}" | tr -c 'A-Za-z0-9._-' '-')"
 mirror_path="${mirror_root}/${mirror_name}.git"
+# Copies made by earlier versions of this hook kept the URL's ".git" in the
+# name (e.g. "...ClimaAtmos.jl.git.git"); they are renamed to mirror_path.
+legacy_mirror_path="${mirror_root}/$(printf '%s' "${BUILDKITE_REPO}" | tr -c 'A-Za-z0-9._-' '-').git"
 
 # Never fatal: on any failure we clone straight from BUILDKITE_REPO as before.
 update_git_mirror() {
-    # An empty URL would make the mirror path "${mirror_root}/.git".
-    [ -n "${BUILDKITE_REPO}" ] || return 1
     mkdir -p "${mirror_root}"
     # Lock, since many steps and builds start at once. If the job holding it is
     # stuck, give up after 15 min and clone from the remote rather than wait.
     (
         flock --timeout 900 9 || exit 1
+        # set -e does not apply here (the caller uses `||`), so each step that
+        # must succeed ends in `|| exit 1`.
+        if [ "${legacy_mirror_path}" != "${mirror_path}" ] &&
+            [ -d "${legacy_mirror_path}" ] && [ ! -e "${mirror_path}" ]; then
+            mv -T "${legacy_mirror_path}" "${mirror_path}" || exit 1
+        fi
         # A copy can exist but be unusable, e.g. if the scratch purge deleted
         # some of its files. Check it with --git-dir rather than -C, since -C
         # would search parent directories for a repo. Move a broken copy aside
-        # so it is rebuilt below instead of failing on every build. Moving it is
-        # safe for other jobs: clones skip a copy that is not a valid repo, and
-        # finished checkouts copy what they need from it (see the repack below).
-        # The last broken copy is kept, rather than deleted, so a copy judged
-        # broken by mistake can be restored and a broken one can be inspected.
+        # so it is rebuilt below instead of failing on every build. This is safe
+        # for other jobs: a clone only uses the copy after its own update of it
+        # succeeded, and finished checkouts copy what they need from it (see
+        # detach_from_mirror). The last broken copy is kept, rather than
+        # deleted, so a copy judged broken by mistake can be restored and a
+        # broken one can be inspected.
         if [ -d "${mirror_path}" ] &&
             ! git --git-dir="${mirror_path}" rev-parse --is-bare-repository >/dev/null 2>&1; then
             echo "Mirror at ${mirror_path} is not a valid repo; moving it to ${mirror_path}.broken and rebuilding"
-            rm -rf "${mirror_path}.broken"
-            mv "${mirror_path}" "${mirror_path}.broken"
+            rm -rf "${mirror_path}.broken" || exit 1
+            mv -T "${mirror_path}" "${mirror_path}.broken" || exit 1
         fi
         if [ -d "${mirror_path}" ]; then
             # Also set here so copies made before this hook existed pick it up.
-            git --git-dir="${mirror_path}" config gc.auto 0
-            git --git-dir="${mirror_path}" remote update --prune
+            git -C "${mirror_path}" config gc.auto 0 || exit 1
+            git -C "${mirror_path}" remote update --prune || exit 1
         else
             # Clone aside and rename, so a job killed part-way through (this
             # can take over an hour on a slow link) leaves no half-copy for the
             # next build to mistake for a usable one.
             # gc.auto=0: a garbage collection here could delete objects that a
             # still-running clone is reading.
-            rm -rf "${mirror_path}.incoming"
-            git clone --mirror -c gc.auto=0 "${BUILDKITE_REPO}" "${mirror_path}.incoming"
-            mv "${mirror_path}.incoming" "${mirror_path}"
+            rm -rf "${mirror_path}.incoming" || exit 1
+            git clone --mirror -c gc.auto=0 "${BUILDKITE_REPO}" "${mirror_path}.incoming" || exit 1
+            mv -T "${mirror_path}.incoming" "${mirror_path}" || exit 1
         fi
     ) 9>"${mirror_root}/${mirror_name}.lock"
 }
 
+clone_and_checkout() {
+    git clone "$@" \
+        --branch "${BUILDKITE_BRANCH}" \
+        ${BUILDKITE_GIT_CLONE_FLAGS} \
+        ${BUILDKITE_REPO} \
+        "${BUILDKITE_BUILD_CHECKOUT_PATH}" &&
+        git -C "${BUILDKITE_BUILD_CHECKOUT_PATH}" checkout -f "${BUILDKITE_COMMIT}"
+}
+
+# Copy the objects borrowed from the shared copy into the checkout, so later
+# steps keep working if the shared copy is purged or rebuilt. This is what
+# `git clone --dissociate` does, run as a separate step so it works the same
+# across git versions. It also fails if the shared copy is missing objects,
+# which the validity check in update_git_mirror does not catch.
+detach_from_mirror() {
+    local alternates="${BUILDKITE_BUILD_CHECKOUT_PATH}/.git/objects/info/alternates"
+    [ -f "${alternates}" ] || return 0
+    git -C "${BUILDKITE_BUILD_CHECKOUT_PATH}" repack -a -d -q &&
+        rm -f "${alternates}"
+}
+
 if [ ! -d "${BUILDKITE_BUILD_CHECKOUT_PATH}/.git" ]; then
     echo "--- Update git mirror"
-    update_git_mirror || echo "Mirror update failed; cloning without it"
+    mirror_ok=true
+    update_git_mirror || {
+        mirror_ok=false
+        echo "Mirror update failed; cloning without it"
+    }
 
     echo "--- Init clone and checkout"
     if [ "$BUILDKITE_COMMIT" = "HEAD" ]; then
-        git clone \
-            --depth=1 \
-            --branch "${BUILDKITE_BRANCH}" \
-            ${BUILDKITE_GIT_CLONE_FLAGS} \
-            ${BUILDKITE_REPO} \
-            "${BUILDKITE_BUILD_CHECKOUT_PATH}"
-    else
-        git clone \
-            --reference-if-able "${mirror_path}" \
-            --branch "${BUILDKITE_BRANCH}" \
-            ${BUILDKITE_GIT_CLONE_FLAGS} \
-            ${BUILDKITE_REPO} \
-            "${BUILDKITE_BUILD_CHECKOUT_PATH}"
+        clone_and_checkout --depth=1
+    elif ! "${mirror_ok}"; then
+        clone_and_checkout
+    elif ! { clone_and_checkout --reference-if-able "${mirror_path}" &&
+        detach_from_mirror; }; then
+        echo "Clone with mirror failed; cloning without it"
+        rm -rf "${BUILDKITE_BUILD_CHECKOUT_PATH}"
+        clone_and_checkout
     fi
     cd "${BUILDKITE_BUILD_CHECKOUT_PATH}"
-    git checkout -f "${BUILDKITE_COMMIT}"
-    # Copy the objects borrowed from the shared copy into this checkout, so
-    # later steps keep working if the shared copy is purged or rebuilt. This is
-    # what `git clone --dissociate` does, run as a separate step so it works
-    # the same across git versions. Not fatal: the checkout is usable without it.
-    if [ -f .git/objects/info/alternates ]; then
-        { git repack -a -d -q && rm -f .git/objects/info/alternates; } ||
-            echo "Could not detach checkout from the shared copy; continuing"
-    fi
     # emulate https://github.com/buildkite/agent/blob/7e0166eebed5bf3cc289edae97145803429e75f9/bootstrap/bootstrap.go#L1448-L1458
     if ! buildkite-agent meta-data exists "buildkite:git:commit" ; then
         echo "Sending Git commit information to Buildkite"
