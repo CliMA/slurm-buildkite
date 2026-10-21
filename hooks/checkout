@@ -97,6 +97,9 @@ if [ ! -d "${BUILDKITE_BUILD_CHECKOUT_PATH}/.git" ]; then
     elif ! { clone_and_checkout --reference-if-able "${mirror_path}" &&
         detach_from_mirror; }; then
         echo "Clone with mirror failed; cloning without it"
+        # The agent runs this hook from inside the checkout directory; leave it
+        # before deleting it, or git can't read its working directory.
+        cd /
         rm -rf "${BUILDKITE_BUILD_CHECKOUT_PATH}"
         clone_and_checkout
     fi
