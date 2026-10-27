@@ -21,7 +21,7 @@ steps:
       - label: "CUDA/MPI test on clima"
         command:
           - julia --project=.buildkite -e 'using Pkg; Pkg.instantiate()'
-          - srun nsys profile --trace=nvtx,cuda,mpi --output=report_%q{PMI_RANK} --force-overwrite true julia --project=.buildkite .buildkite/test_cuda_mpi.jl
+          - srun nsys profile --trace=nvtx,cuda,mpi --output=report_%q{SLURM_PROCID} --force-overwrite true julia --project=.buildkite .buildkite/test_cuda_mpi.jl
           - nsys stats --report cuda_gpu_trace report_0.nsys-rep --force-export true
           - nsys stats --report cuda_gpu_trace report_0.nsys-rep --force-export true | grep -E "memcpy (Peer-to-Peer|PtoP)"
         agents:
@@ -30,30 +30,30 @@ steps:
           slurm_gpus_per_task: 1
           slurm_cpus_per_task: 4
           slurm_time: "00:10:00"
-          modules: climacommon/2024_10_09
+          modules: climacommon/2025_05_15
 
       - label: "CUDA/MPI test on central"
         command:
-          - julia --project=.buildkite -e 'using Pkg; Pkg.instantiate()'
-          # Using srun crashes upon MPI.jl initialization
-          - mpirun -n 2 nsys profile --trace=cuda,mpi --mpi-impl=openmpi --force-overwrite true julia --project=.buildkite .buildkite/test_cuda_mpi.jl
-          - nsys stats --report cuda_gpu_trace report1.nsys-rep --force-export true
-          - nsys stats --report cuda_gpu_trace report1.nsys-rep --force-export true | grep -E "memcpy (Peer-to-Peer|PtoP)"
+          - julia --project=.buildkite -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
+          - echo "--- Default UCX settings (timing reported, not enforced)"
+          - MAX_EXCHANGE_US=Inf srun julia --project=.buildkite .buildkite/test_cuda_mpi.jl
+          - echo "--- GPU messages staged through host memory"
+          - UCX_IB_GPU_DIRECT_RDMA=no srun julia --project=.buildkite .buildkite/test_cuda_mpi.jl
         agents:
           queue: central
-          slurm_ntasks: 2
+          slurm_nodes: 2
+          slurm_ntasks_per_node: 1
           slurm_gpus_per_task: 1
-          slurm_cpus_per_task: 4
-          slurm_time: "00:10:00"
-          modules: climacommon/2024_10_09
-        soft_fail: true
+          slurm_cpus_per_task: 8
+          slurm_time: "00:45:00"
+          modules: climacommon/2025_05_15
 
       - label: "CUDA/MPI test on GCP"
         command:
           - julia --project=.buildkite -e 'using Pkg; Pkg.instantiate()'
-          - mpiexec -n 2 nsys profile --trace=cuda,mpi --mpi-impl=openmpi --force-overwrite true julia --project=.buildkite .buildkite/test_cuda_mpi.jl
-          - nsys stats --report cuda_gpu_trace report1.nsys-rep --force-export true
-          - nsys stats --report cuda_gpu_trace report1.nsys-rep --force-export true | grep -E "memcpy (Peer-to-Peer|PtoP)"
+          - mpiexec -n 2 nsys profile --trace=cuda,mpi --mpi-impl=openmpi --output=report_%q{OMPI_COMM_WORLD_RANK} --force-overwrite true julia --project=.buildkite .buildkite/test_cuda_mpi.jl
+          - nsys stats --report cuda_gpu_trace report_0.nsys-rep --force-export true
+          - nsys stats --report cuda_gpu_trace report_0.nsys-rep --force-export true | grep -E "memcpy (Peer-to-Peer|PtoP)"
         agents:
           queue: gcp
           slurm_ntasks: 2
@@ -79,5 +79,5 @@ steps:
           - julia .buildkite/test_rqrun_simple.jl
         agents:
           queue: clima
-          modules: climacommon/2024_10_09
+          modules: climacommon/2025_05_15
 
