@@ -4,6 +4,9 @@ set -euo pipefail
 export MODULEPATH="/resnick/groups/esm/modules:$MODULEPATH"
 module load git/2.39.3-gcc-11.3.1-zfr3sti
 
+# Prefetched artifacts. Trailing ":" keeps Julia's bundled depots
+export JULIA_DEPOT_PATH="$JULIA_DEPOT_PATH:/resnick/groups/esm/PrefetchedArtifacts:"
+
 # Default TMPDIR if not set
 export TMPDIR="${TMPDIR:-/tmp/slurm-${SLURM_JOB_ID}}"
 
