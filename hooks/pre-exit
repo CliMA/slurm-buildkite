@@ -15,7 +15,11 @@ case "$BUILDKITE_AGENT_META_DATA_QUEUE" in
         srun --ntasks-per-node=1 --ntasks="${SLURM_JOB_NUM_NODES}" rm -rf "$TMPDIR"; 
         ;;
     "clima")
-        rm -rf "$TMPDIR"
+        # Not $TMPDIR: it reverts to Slurm's default /tmp if the environment
+        # hook fails
+        if [ -n "${SLURM_JOB_ID:-}" ]; then
+            rm -rf "/tmp/slurm-${SLURM_JOB_ID}"
+        fi
         ;;
     "derecho")
         pbsdsh -- rm -rf "$TMPDIR"
