@@ -8,7 +8,7 @@ steps:
       - label: "CUDA/MPI test on derecho"
         command:
           - julia --project=.buildkite -e 'using Pkg; Pkg.instantiate()'
-          - mpiwrapperexec -n 2 set_gpu_rank nsys profile --trace=nvtx,cuda,mpi --output=report_%q{PMI_RANK} --force-overwrite true julia --project=.buildkite .buildkite/test_cuda_mpi.jl
+          - mpiwrapperexec -n 2 set_gpu_rank nsys profile --trace=cuda --output=report_%q{PMI_RANK} --force-overwrite true julia --project=.buildkite .buildkite/test_cuda_mpi.jl
           - nsys stats --report cuda_gpu_trace report_0.nsys-rep --force-export true
           - nsys stats --report cuda_gpu_trace report_0.nsys-rep --force-export true | grep -E "memcpy (Peer-to-Peer|PtoP)"
         agents:
@@ -22,7 +22,7 @@ steps:
       - label: "CUDA/MPI test on clima"
         command:
           - julia --project=.buildkite -e 'using Pkg; Pkg.instantiate()'
-          - srun nsys profile --trace=nvtx,cuda,mpi --output=report_%q{SLURM_PROCID} --force-overwrite true julia --project=.buildkite .buildkite/test_cuda_mpi.jl
+          - srun nsys profile --trace=cuda --output=report_%q{SLURM_PROCID} --force-overwrite true julia --project=.buildkite .buildkite/test_cuda_mpi.jl
           - nsys stats --report cuda_gpu_trace report_0.nsys-rep --force-export true
           - nsys stats --report cuda_gpu_trace report_0.nsys-rep --force-export true | grep -E "memcpy (Peer-to-Peer|PtoP)"
         agents:
@@ -31,7 +31,7 @@ steps:
           slurm_gpus_per_task: 1
           slurm_cpus_per_task: 4
           slurm_time: "00:10:00"
-          modules: climacommon/2026_10_30-1.13.3
+          modules: climacommon/2026_11_06-1.13.3
 
       - label: "CUDA/MPI test on central"
         command:
@@ -64,5 +64,5 @@ steps:
           - julia .buildkite/test_rqrun_simple.jl
         agents:
           queue: clima
-          modules: climacommon/2026_10_30-1.13.3
+          modules: climacommon/2026_11_06-1.13.3
 

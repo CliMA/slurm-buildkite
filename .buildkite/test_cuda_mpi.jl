@@ -5,19 +5,23 @@ Main testing functions:
 - `test_gpu_visibility`: Test access to at least one GPU and perform a minimal computation
 - `test_mpi`: Test a send/receive between arrays on MPI ranks. This is used to
 test transfers between CPU-allocated Arrays and GPU-allocated CuArrays.
-- `test_exchange_time`: Time repeated halo-sized exchanges between ranks 0 and 1,
-reusing the same buffers, and fail if one exchange takes longer than
-`MAX_EXCHANGE_US` microseconds (default 500). Exchanges between nodes that
-re-register GPU memory on every send take about 2 ms.
+- `test_exchange_time`: Time 1000 halo-sized exchanges between ranks 0 and 1,
+reusing the same buffers, and fail if the average exchange takes longer than
+the `MAX_EXCHANGE_US` environment variable, in microseconds (default 500).
+Exchanges between nodes that re-register GPU memory on every send take about 2 ms.
 
 For performance, it is important to verify that transfers between CuArrays on different GPUs
 are peer-to-peer transfers, which is done by profiling the test with Nsight Systems.
 
 To run this test, you need 2 CUDA devices, CUDA-aware MPI, and Nsight Systems.
 
-First, run the test with two MPI ranks, profiling with Nsight:
+First, instantiate the environment:
 
-    `srun -n 2 nsys profile --trace=nvtx,cuda,mpi --output=report_%q{SLURM_PROCID} julia --project=.buildkite .buildkite/test_cuda_mpi.jl`
+    `julia --project=.buildkite -e 'using Pkg; Pkg.instantiate()'`
+
+Then run the test with two MPI ranks, profiling with Nsight:
+
+    `srun -n 2 nsys profile --trace=cuda --output=report_%q{SLURM_PROCID} julia --project=.buildkite .buildkite/test_cuda_mpi.jl`
 
 If this runs successfully, the test prints MPI and CUDA version info and the following output:
 
@@ -146,11 +150,13 @@ if rank == 0
     CUDA.versioninfo()
 end
 
-test_gpu_visibility()
-test_mpi(Array)
-test_mpi(CuArray)
-test_exchange_time(Array)
-test_exchange_time(CuArray)
+@testset "CUDA and MPI" begin
+    test_gpu_visibility()
+    test_mpi(Array)
+    test_mpi(CuArray)
+    test_exchange_time(Array)
+    test_exchange_time(CuArray)
+end
 
 root_println("All tests completed!")
 MPI.Finalize()
