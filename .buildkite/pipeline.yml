@@ -46,23 +46,25 @@ steps:
           slurm_time: "00:45:00"
           modules: climacommon/2026_10_30-1.13.3
 
-  - group: "rqrun Tests"
-    key: "rqrun-tests"
+  - group: "chainrun Tests"
+    key: "chainrun-tests"
     steps:
-      - label: "rqrun test on derecho"
+      - label: "chainrun test on derecho"
         command:
-          - julia .buildkite/test_rqrun_simple.jl
+          - python3 -m unittest tests/test_chainrun.py
+          - python3 tests/live_chainrun.py --dir /glade/derecho/scratch/$$USER
         agents:
           queue: derecho
           pbs_q: develop
           pbs_l_select: "1:ncpus=1"
+          pbs_l_walltime: "01:00:00"
           modules: climacommon/2025_02_25
-        soft_fail: true
 
-      - label: "rqrun test on clima"
+      - label: "chainrun test on clima"
         command:
-          - julia .buildkite/test_rqrun_simple.jl
+          - python3 -m unittest tests/test_chainrun.py
+          - python3 tests/live_chainrun.py
         agents:
           queue: clima
+          slurm_time: "01:00:00"
           modules: climacommon/2026_11_06-1.13.3
-

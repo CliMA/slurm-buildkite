@@ -1,0 +1,331 @@
+#!/usr/bin/env python3
+"""Run a batch script that needs more than the maximum time limit.
+
+chainrun runs the script as a series of jobs, one after the other. When a job reaches its
+time limit, is canceled, or loses its node, the next job starts and runs the script again.
+The script must pick up where it left off, for example by restarting from its newest
+checkpoint.
+
+    chainrun submit [--max-attempts N] SCRIPT [-- SCHEDULER OPTIONS...]
+    chainrun status CHAIN
+    chainrun stop CHAIN
+
+For example, on Derecho:
+
+    chainrun submit --max-attempts 10 run.sh -- -q main -A UCIT0011 -l walltime=12:00:00
+
+Each job queues the next one before it starts the script, held until the current job has
+ended, so the queue shows one running and one waiting job and two never run at once.
+
+The script tells chainrun how it ended through its exit status. 0 means the work is
+finished and no more jobs are needed. 75 means it stopped early on purpose and the next
+job should continue. Anything else means it failed and the chain ends there. A job ended
+by the scheduler always continues.
+
+submit prints the chain directory, which status and stop take. It holds a copy of the
+script and a file `history` with one line per event. Options after `--` go to qsub or
+sbatch, and `#PBS` or `#SBATCH` lines in the script are honored.
+"""
+import argparse
+import json
+import os
+import re
+import shlex
+import shutil
+import signal
+import subprocess
+import sys
+import traceback
+from datetime import datetime
+
+CONTINUE_CODE = 75
+PBS_STATES = {"R": "running", "E": "running", "F": "ended", "X": "ended"}
+SLURM_STATES = {"PENDING": "queued", "CONFIGURING": "queued", "SUSPENDED": "queued",
+                "REQUEUED": "queued", "RUNNING": "running", "COMPLETING": "running"}
+
+
+def run(cmd, cwd=None, env=None):
+    return subprocess.run(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, universal_newlines=True)
+
+
+def check(cmd, cwd=None, env=None, accept=None):
+    """Output of cmd. A nonzero status is an error unless stderr contains `accept`."""
+    result = run(cmd, cwd=cwd, env=env)
+    if result.returncode != 0 and not (accept and accept in result.stderr):
+        raise RuntimeError("%s failed (%d): %s" % (cmd[0], result.returncode,
+                                                   (result.stderr or result.stdout).strip()))
+    return result.stdout
+
+
+class Pbs:
+    def __init__(self):
+        with open("/etc/pbs.conf") as f:
+            for line in f:
+                if line.startswith("PBS_EXEC="):
+                    self.bin = os.path.join(line.split("=", 1)[1].strip(), "bin")
+
+    def job_id(self):
+        return os.environ.get("PBS_JOBID")
+
+    def submit(self, batch, options, after=None, cwd=None, env=None):
+        cmd = [os.path.join(self.bin, "qsub")] + options + ["-k", "doe", "-r", "n"]
+        if after:
+            cmd += ["-W", "depend=afterany:" + after]
+        return check(cmd + [batch], cwd=cwd, env=env).strip().splitlines()[0]
+
+    def cancel(self, job_id):
+        check([os.path.join(self.bin, "qdel"), job_id])
+
+    def query(self, job_id):
+        return self.parse(check([os.path.join(self.bin, "qstat"), "-xf", job_id],
+                                accept="Unknown Job Id"))
+
+    @staticmethod  # so the tests can parse captured output without a scheduler
+    def parse(text):
+        """State (queued, running, ended or unknown) from `qstat -xf` output."""
+        attrs = dict(re.findall(r"^\s{4}(\S+) = (.*)$", text, re.M))
+        if "job_state" not in attrs:
+            return "unknown"
+        return PBS_STATES.get(attrs["job_state"], "queued")
+
+
+class Slurm:
+    def job_id(self):
+        return os.environ.get("SLURM_JOB_ID")
+
+    def submit(self, batch, options, after=None, cwd=None, env=None):
+        cmd = ["sbatch", "--parsable"] + options + ["--open-mode=append", "--no-requeue"]
+        if after:
+            cmd.append("--dependency=afterany:" + after)
+        return check(cmd + [batch], cwd=cwd, env=env).strip().split(";")[0]
+
+    def cancel(self, job_id):
+        check(["scancel", job_id])
+
+    def query(self, job_id):
+        live = check(["squeue", "-h", "-j", job_id, "-o", "%T"], accept="Invalid job id")
+        done = "" if live.strip() else check(["sacct", "-j", job_id, "-X", "-n", "-P", "-o", "State"])
+        return self.parse(live, done)
+
+    @staticmethod  # so the tests can parse captured output without a scheduler
+    def parse(squeue_text, sacct_text):
+        """State (queued, running, ended or unknown) from `squeue -o %T` and `sacct -o State`
+        output. Ended jobs stay in squeue for a few minutes."""
+        text = squeue_text.strip() or sacct_text.strip()
+        if not text:
+            return "unknown"
+        return SLURM_STATES.get(text.split()[0], "ended")
+
+
+def get_scheduler():
+    spec = os.environ.get("CHAINRUN_SCHEDULER", "")
+    if spec.startswith("fake:"):
+        import fake_scheduler  # tests/fake_scheduler.py, through PYTHONPATH
+        return fake_scheduler.Fake(spec[5:])
+    if shutil.which("sbatch"):
+        return Slurm()
+    if shutil.which("qsub"):
+        return Pbs()
+    sys.exit("chainrun: no sbatch or qsub on PATH")
+
+
+# ---------------------------------------------------------------- chain directory
+
+def now():
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def append_history(chain, line):
+    with open(os.path.join(chain, "history"), "a") as f:
+        f.write("%s %s\n" % (now(), " ".join(line.split())))
+
+
+def read_history(chain):
+    with open(os.path.join(chain, "history")) as f:
+        return [line.split() for line in f if line.strip()]
+
+
+def read_config(chain):
+    with open(os.path.join(chain, "chain.json")) as f:
+        return json.load(f)
+
+
+def chain_state(history, query, max_attempts):
+    """done, failed, stopped, live, exhausted or lost from the history lines, asking the
+    scheduler which jobs are live."""
+    final = [e for e in history if e[1] == "chain"]
+    if final:
+        return final[-1][2]
+    submitted = [e for e in history if e[1] == "submitted"]
+    if any(query(e[3]) in ("queued", "running") for e in submitted):
+        return "live"
+    last = int(submitted[-1][2]) if submitted else 0
+    started = any(e[1] == "started" and int(e[2]) == last for e in history)
+    return "exhausted" if last == max_attempts and started else "lost"
+
+
+def leading_block(script):
+    """The comment and blank lines before the first command, where directives live."""
+    block = []
+    with open(script) as f:
+        for i, line in enumerate(f):
+            if i == 0 and line.startswith("#!"):
+                continue
+            if line.strip() and not line.startswith("#"):
+                break
+            block.append(line)
+    return block
+
+
+def submit_attempt(chain, config, sched, n, after):
+    batch = os.path.join(chain, "batch", str(n), os.path.basename(config["script"]))
+    os.makedirs(os.path.dirname(batch), exist_ok=True)
+    with open(batch, "w") as f:
+        f.write("#!/bin/bash\n")
+        f.writelines(leading_block(os.path.join(chain, "script.sh")))
+        f.write("exec %s %s attempt %s %d\n" % (shlex.quote(config["python"]),
+                                              shlex.quote(config["chainrun"]), shlex.quote(chain), n))
+    os.chmod(batch, 0o755)
+    job = sched.submit(batch, config["options"], after=after, cwd=config["cwd"],
+                       env=config["env"])
+    append_history(chain, "submitted %d %s" % (n, job))
+    return job
+
+
+# ------------------------------------------------------------------------ commands
+
+def cmd_submit(args):
+    script = os.path.abspath(args.script)
+    if not os.path.isfile(script):
+        sys.exit("chainrun: no such script %s" % script)
+    chain = os.path.join(os.path.dirname(script), ".chainrun",
+                         "%s.%s" % (os.path.basename(script), datetime.now().strftime("%Y%m%d-%H%M%S.%f")))
+    os.makedirs(os.path.dirname(chain), exist_ok=True)
+    os.mkdir(chain)
+    shutil.copy(script, os.path.join(chain, "script.sh"))
+    os.chmod(os.path.join(chain, "script.sh"), 0o755)
+    options = args.options[1:] if args.options[:1] == ["--"] else args.options
+    config = {"max_attempts": args.max_attempts, "options": options, "cwd": os.getcwd(),
+              "env": dict(os.environ), "python": sys.executable,
+              "chainrun": os.path.abspath(__file__), "script": script}
+    fd = os.open(os.path.join(chain, "chain.json"), os.O_WRONLY | os.O_CREAT, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(config, f, indent=1)
+    try:
+        submit_attempt(chain, config, get_scheduler(), 1, None)
+    except Exception as e:
+        shutil.rmtree(chain)
+        sys.exit("chainrun: %s" % e)
+    print(chain)
+
+
+def cmd_attempt(args):
+    chain, n = args.chain, args.n
+    config = read_config(chain)
+    if any(e[1] == "chain" for e in read_history(chain)):
+        print("=== chainrun attempt %d: the chain has ended, nothing to run" % n)
+        return 0
+    sched = get_scheduler()
+    me = sched.job_id()
+    append_history(chain, "started %d %s %s" % (n, me, os.uname()[1]))
+    next_job = None
+    if n < config["max_attempts"]:
+        try:
+            next_job = submit_attempt(chain, config, sched, n + 1, me)
+        except Exception as e:
+            append_history(chain, "error could not queue attempt %d: %s" % (n + 1, e))
+    print("=== chainrun attempt %d of %d, job %s, started %s" % (n, config["max_attempts"], me, now()))
+    sys.stdout.flush()
+
+    terminated = []
+    try:
+        script = os.path.join(chain, "script.sh")
+        with open(script) as f:
+            command = [script] if f.read(2) == "#!" else ["/bin/bash", script]
+        proc = subprocess.Popen(command)
+
+        def on_term(signum, frame):
+            if not terminated:
+                terminated.append(signum)
+                append_history(chain, "signaled %d" % n)
+
+        signal.signal(signal.SIGTERM, on_term)
+        code = proc.wait()
+    except Exception:
+        traceback.print_exc()
+        code = 1
+    if code < 0:
+        code = 128 - code
+    if terminated:
+        outcome = "external"
+    elif code == 0:
+        outcome = "done"
+    elif code == CONTINUE_CODE:
+        outcome = "continue"
+    else:
+        outcome = "failed"
+    append_history(chain, "ended %d exit=%d %s" % (n, code, outcome))
+    if outcome in ("done", "failed"):
+        append_history(chain, "chain %s exit=%d" % (outcome, code))
+        if next_job:
+            try:
+                sched.cancel(next_job)
+            except Exception as e:
+                append_history(chain, "error could not cancel attempt %d: %s" % (n + 1, e))
+    print("=== chainrun attempt %d ended, exit %d, %s" % (n, code, outcome))
+    return code
+
+
+def cmd_status(args):
+    chain = os.path.abspath(args.chain)
+    state = chain_state(read_history(chain), get_scheduler().query, read_config(chain)["max_attempts"])
+    print("%s %s" % (state, chain))
+    with open(os.path.join(chain, "history")) as f:
+        sys.stdout.write(f.read())
+
+
+def cmd_stop(args):
+    chain = os.path.abspath(args.chain)
+    sched = get_scheduler()
+    history = read_history(chain)
+    state = chain_state(history, sched.query, read_config(chain)["max_attempts"])
+    if state != "live":
+        sys.exit("chainrun: chain is already %s" % state)
+    append_history(chain, "chain stopped")
+    for e in reversed([e for e in history if e[1] == "submitted"]):
+        if sched.query(e[3]) in ("queued", "running"):
+            try:
+                sched.cancel(e[3])
+            except Exception as err:
+                print("chainrun: could not cancel job %s: %s" % (e[3], err), file=sys.stderr)
+    print("stopped %s" % chain)
+    return 0
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(prog="chainrun", description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="command", metavar="COMMAND")
+    sub.required = True
+    p = sub.add_parser("submit", help="start a chain")
+    p.add_argument("--max-attempts", type=int, default=10)
+    p.add_argument("script")
+    p.add_argument("options", nargs=argparse.REMAINDER, help="scheduler options after --")
+    p.set_defaults(func=cmd_submit)
+    p = sub.add_parser("status", help="print the chain's state and history")
+    p.add_argument("chain")
+    p.set_defaults(func=cmd_status)
+    p = sub.add_parser("stop", help="end a chain and cancel its jobs")
+    p.add_argument("chain")
+    p.set_defaults(func=cmd_stop)
+    p = sub.add_parser("attempt", help="run one attempt, called by the batch jobs")
+    p.add_argument("chain")
+    p.add_argument("n", type=int)
+    p.set_defaults(func=cmd_attempt)
+    args = parser.parse_args(argv)
+    return args.func(args) or 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

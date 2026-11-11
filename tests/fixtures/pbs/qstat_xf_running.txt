@@ -1,0 +1,74 @@
+Job Id: 8052953.desched1
+    Job_Name = fixture
+    Job_Owner = nefrathe@derecho2.hsn.de.hpc.ucar.edu
+    job_state = R
+    queue = cpudev
+    server = desched1.hsn.de.hpc.ucar.edu
+    Account_Name = UCIT0011
+    Checkpoint = u
+    ctime = Mon Nov  2 16:47:35 2026
+    Error_Path = derecho2.hsn.de.hpc.ucar.edu:/glade/u/home/nefrathe/clima/slur
+	m-buildkite-minimal/fixture.e8052953
+    exec_host = dec2439/7
+    exec_vnode = (dec2439:ncpus=1:mem=10485760kb:ngpus=0)
+    Hold_Types = n
+    Join_Path = oe
+    Keep_Files = od
+    Mail_Points = a
+    mtime = Mon Nov  2 16:47:43 2026
+    Output_Path = derecho2.hsn.de.hpc.ucar.edu:/glade/derecho/scratch/nefrathe/
+	rqrun-redesign/fixture.out
+    Priority = 0
+    qtime = Mon Nov  2 16:47:35 2026
+    Rerunable = False
+    Resource_List.job_priority = none
+    Resource_List.mem = 10gb
+    Resource_List.ncpus = 1
+    Resource_List.ngpus = 0
+    Resource_List.nodect = 1
+    Resource_List.place = scatter:shared
+    Resource_List.preempt_targets = None
+    Resource_List.select = 1:ncpus=1:ompthreads=1
+    Resource_List.walltime = 00:03:00
+    substate = 41
+    Variable_List = PBS_O_HOME=/glade/u/home/nefrathe,PBS_O_LANG=en_US.UTF-8,
+	PBS_O_LOGNAME=nefrathe,
+	PBS_O_PATH=/glade/u/home/nefrathe/.local/bin:/glade/u/home/nefrathe/lo
+	cal/bin:/glade/u/home/nefrathe/.local/bin:/glade/u/home/nefrathe/google
+	-cloud-sdk/bin:/glade/u/home/nefrathe/local/bin:/glade/u/home/nefrathe/
+	.juliaup/bin:/glade/u/apps/derecho/25.10/spack/opt/spack/netcdf/4.9.3/i
+	ntel-oneapi-compilers/2025.2.1/2t5o/bin:/glade/u/apps/derecho/25.10/spa
+	ck/opt/spack/hdf5/1.14.6/intel-oneapi-compilers/2025.2.1/fr4a/bin:/glad
+	e/u/apps/derecho/25.10/spack/opt/spack/ncarcompilers/1.1.0/intel-oneapi
+	-compilers/2025.2.1/d7a7/bin/mpi:/opt/cray/pals/default/bin:/opt/cray/l
+	ibfabric/1.22.0/bin:/opt/cray/pe/mpich/8.1.32/ofi/intel/2022.1/bin:/opt
+	/cray/pe/mpich/8.1.32/bin:/glade/u/apps/derecho/25.10/spack/opt/spack/n
+	carcompilers/1.1.0/intel-oneapi-compilers/2025.2.1/d7a7/bin:/glade/u/ap
+	ps/common/25.10/spack/opt/spack/intel-oneapi-compilers/2025.2.1/s4f2/co
+	mpiler/2025.2/bin:/opt/cray/pe/craype/2.7.34/bin:/glade/u/apps/common/2
+	5.10/spack/opt/spack/gcc/12.5.0/hsbg/bin:/glade/u/apps/derecho/25.10/op
+	t/wrappers/bin:/glade/u/apps/derecho/25.10/opt/utils/bin:/opt/clmgr/sbi
+	n:/opt/clmgr/bin:/opt/sgi/sbin:/opt/sgi/bin:/glade/u/home/nefrathe/.loc
+	al/bin:/glade/u/home/nefrathe/bin:/opt/c3/bin:/usr/lib/mit/bin:/usr/lib
+	/mit/sbin:/opt/pbs/bin:/usr/diags/scripts:/usr/diags/bin/non-mpi:/usr/d
+	iags/bin/nvidia/gpuburn_static:/glade/u/apps/derecho/25.10/opt/view/bin
+	:/usr/local/bin:/usr/bin:/sbin:/bin:/opt/cray/pe/bin:/glade/u/home/nefr
+	athe/.fzf/bin,PBS_O_MAIL=/var/spool/mail/nefrathe,PBS_O_SHELL=/bin/bash,
+	PBS_O_INTERACTIVE_AUTH_METHOD=resvport,
+	PBS_O_HOST=derecho2.hsn.de.hpc.ucar.edu,
+	PBS_O_WORKDIR=/glade/u/home/nefrathe/clima/slurm-buildkite-minimal,
+	PBS_O_SYSTEM=Linux,PBS_O_QUEUE=develop
+    comment = Job was sent for execution at Mon Nov 02 at 16:47 on (dec2439:ncp
+	us=1:mem=10485760kb:ngpus=0)
+    etime = Mon Nov  2 16:47:35 2026
+    umask = 22
+    run_count = 1
+    eligible_time = 00:00:13
+    Submit_arguments = -A UCIT0011 -q develop -l select=1:ncpus=1 -l walltime=0
+	0:03:00 -N fixture -k doe -j oe -o /glade/derecho/scratch/nefrathe/rqru
+	n-redesign/fixture.out -- /bin/sleep 150
+    executable = <jsdl-hpcpa:Executable>/bin/sleep</jsdl-hpcpa:Executable>
+    argument_list = <jsdl-hpcpa:Argument>150</jsdl-hpcpa:Argument>
+    project = _pbs_project_default
+    Submit_Host = derecho2.hsn.de.hpc.ucar.edu
+

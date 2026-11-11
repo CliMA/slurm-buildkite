@@ -71,5 +71,26 @@ If you only see `[CUDA memcpy Device-to-Host]`, it is likely that your CUDA devi
 
 This test is run against pull requests using a [Buildkite pipeline](https://buildkite.com/clima/slurm-buildkite-experimental/).
 
+## chainrun: batch jobs that continue across time limits
 
+`bin/chainrun` runs a script as a chain of jobs. Each attempt queues the next one with an
+`afterany` dependency before running the script, so the chain continues after a time
+limit, a preemption, a node failure or a hard kill without the dying job doing anything,
+and two attempts never run at once. The script must resume from its own checkpoints, which
+the ClimaCoupler and ClimaAtmos drivers do when told to detect restart files.
 
+```
+chain=$(chainrun submit --max-attempts 10 run.sh -- -q main -A UCIT0011 -l walltime=12:00:00)
+chainrun status "$chain"
+chainrun stop "$chain"
+```
+
+The script's exit status decides: 0 finishes the chain, 75 asks for the next attempt
+(after saving state), anything else fails the chain. A plain `qdel` or `scancel` of the
+running attempt continues the chain. The chain directory (printed by `submit`, under
+`.chainrun/` next to the script) holds the frozen copy of the script and `history`, one line
+per event. `#PBS` and `#SBATCH` lines in the script are honored, and options after `--`
+override them.
+
+Tests: `python3 -m unittest tests/test_chainrun.py` runs against a fake scheduler,
+`python3 tests/live_chainrun.py` submits short jobs to the real one.
