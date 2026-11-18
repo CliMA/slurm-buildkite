@@ -71,5 +71,44 @@ If you only see `[CUDA memcpy Device-to-Host]`, it is likely that your CUDA devi
 
 This test is run against pull requests using a [Buildkite pipeline](https://buildkite.com/clima/slurm-buildkite-experimental/).
 
+## chainrun: batch jobs that continue across time limits
 
+`bin/chainrun` runs a script as a chain of jobs. Each attempt queues the next one with an
+`afterany` dependency before running the script, so the chain continues after a time
+limit, a preemption, a node failure or a hard kill without the dying job doing anything,
+and two attempts never run at once.
 
+Every attempt runs the script from the beginning, so the script must resume
+where the previous attempt left off, for example by loading its newest
+checkpoint. A script that does not support this will repeat the same work in every attempt.
+Work done after the last checkpoint is lost when an attempt is killed.
+
+```
+$ chainrun submit --max-attempts 10 run.sh -- -q main -A UCIT0011 -l walltime=12:00:00
+job   8052953.desched1
+chain /glade/derecho/scratch/user/run/.chainrun/run.sh.20261118-142541.848990
+$ chainrun status 8052953    # any job of the chain, as qstat or squeue shows it
+$ chainrun stop 8052953
+```
+
+To end a chain, run `chainrun stop` with the id of its running or waiting job. It cancels
+the waiting attempt and then the running one. A plain `qdel` or `scancel` of the running
+attempt continues the chain instead.
+
+The script's exit status decides: 0 finishes the chain, 75 asks for the next attempt
+(after saving state), anything else fails the chain. A script killed by SIGTERM continues
+the chain. SIGTERM, SIGUSR1 and SIGUSR2 sent to the job are passed on to the script.
+`chainrun status` reports `out-of-attempts` when the last attempt ended with the work
+unfinished.
+
+Each chain has its own directory, printed by `submit` and under `.chainrun/` next to the
+script. `status` and `stop` also take this directory, which works after the chain's jobs
+have left the queue. It holds the frozen copy of the script and `history`, one line per event. It also
+holds the environment `submit` ran in, readable by the owner only, until no further job
+will be queued. Variables whose names contain TOKEN, SECRET, PASSWORD or PASSWD are left
+out of it, so no attempt sees them. Git ignores `.chainrun/`, and `submit` removes the
+chains in it whose history has not changed in 30 days. `#PBS` and `#SBATCH` lines in the
+script are honored, and options after `--` override them.
+
+Tests: `python3 -m unittest tests/test_chainrun.py` runs against a fake scheduler,
+`python3 tests/live_chainrun.py` submits short jobs to the real one.
