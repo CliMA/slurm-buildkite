@@ -55,6 +55,11 @@ class StateTest(unittest.TestCase):
         self.assertEqual(self.state({}, "submitted 1 a", "started 1 a host"), "lost")
         self.assertEqual(self.state({}, "submitted 1 a", "submitted 2 b"), "lost")
 
+    def test_unknown_when_a_query_failed(self):
+        self.assertEqual(self.state({"a": "error"}, "submitted 1 a"), "unknown")
+        self.assertEqual(self.state({"a": "error", "b": "queued"}, "submitted 1 a",
+                                    "submitted 2 b"), "live")
+
     def test_job_known_only_from_its_started_line(self):
         lines = ("submitted 1 a", "started 1 a host", "started 2 b host")
         self.assertEqual(self.state({"b": "running"}, *lines), "live")
@@ -78,6 +83,14 @@ class StateTest(unittest.TestCase):
         self.assertEqual(self.pbs("F"), "ended")
         self.assertEqual(chainrun.Pbs.parse(""), "unknown")
 
+    def test_pbs_submit_arguments(self):
+        text = ("Job Id: 8052953.desched1\n"
+                "    Submit_arguments = -q main -o /home/user/logs -k doe -r n /home/user/a dir/.chainr\n"
+                "\tun/run.sh.20261118/batch/2/run.sh\n"
+                "    job_state = Q\n")
+        self.assertEqual(chainrun.Pbs.attributes(text)["Submit_arguments"],
+                         "-q main -o /home/user/logs -k doe -r n /home/user/a dir/.chainrun/run.sh.20261118/batch/2/run.sh")
+
     def test_slurm_output(self):
         parse = chainrun.Slurm.parse
         self.assertEqual(parse("RUNNING\n", ""), "running")
@@ -86,6 +99,8 @@ class StateTest(unittest.TestCase):
         self.assertEqual(parse("", "CANCELLED by 1000\n"), "ended")
         self.assertEqual(parse("", "RUNNING\n"), "running")
         self.assertEqual(parse("", ""), "unknown")
+        self.assertEqual(parse("REQUEUE_HOLD\n", ""), "queued")
+        self.assertEqual(parse("", "OUT_OF_MEMORY\n"), "ended")
 
     def test_leading_block(self):
         tmp = tempfile.mkdtemp(prefix="chainrun-test-")
@@ -241,6 +256,24 @@ class CommandTest(unittest.TestCase):
                 outcome = "external" if name == "TERM" else "continue"
                 self.assert_lines(chain, "ended 1 exit=75 " + outcome)
 
+    def test_sigterm_before_the_script_starts(self):
+        chain = self.submit("touch ran\nexit 0\n")
+        with open(os.path.join(self.fake.dir, "refuse"), "w") as f:
+            f.write("the queue is full\n")
+        env = dict(self.env, CHAINRUN_FAKE_JOB_ID="1", CHAINRUN_SUBMIT_DELAY="1")
+        proc = subprocess.Popen([sys.executable, CHAINRUN, "attempt", chain, "1"], env=env,
+                                cwd=self.tmp, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL)
+        self.addCleanup(proc.wait)
+        start = time.time()
+        while "started 1 1" not in " ".join(self.history(chain)):
+            self.assertLess(time.time() - start, 10, "attempt 1 did not start")
+            time.sleep(0.05)
+        os.kill(proc.pid, signal.SIGTERM)
+        self.assertEqual(proc.wait(), 143)
+        self.assert_lines(chain, "signaled 1", "ended 1 exit=143 external")
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "ran")))
+
     def test_attempt_after_the_chain_ended(self):
         open(os.path.join(self.fake.dir, "cancel_fails"), "w").close()
         chain = self.submit("echo ran >> runs\n")
@@ -354,6 +387,16 @@ class CommandTest(unittest.TestCase):
         self.assertEqual(job["cwd"], self.tmp)
         self.assertNotIn("MARK", job["env"])
 
+    def test_secrets_left_out_of_the_environment(self):
+        env = dict(self.env, GITHUB_TOKEN="t", AWS_SECRET_ACCESS_KEY="s", DB_PASSWORD="p",
+                   MARK="kept")
+        chain = self.chainrun("submit", self.script("exit 0\n"), env=env).stdout.strip()
+        saved = chainrun.read_env(chain)
+        self.assertEqual(saved["MARK"], "kept")
+        for name in ("GITHUB_TOKEN", "AWS_SECRET_ACCESS_KEY", "DB_PASSWORD"):
+            self.assertNotIn(name, saved)
+        self.assertNotIn("GITHUB_TOKEN", self.fake.jobs()["1"]["env"])
+
     def test_submit_failure(self):
         with open(os.path.join(self.fake.dir, "refuse"), "w") as f:
             f.write("no\n")
@@ -424,6 +467,38 @@ class CommandTest(unittest.TestCase):
         self.chainrun("stop", chain)
         self.assertEqual(self.fake.log()[-2:], ["cancel 2", "cancel 1"])
         self.assertEqual(self.history(chain).count("chain stopped"), 1)
+
+    def test_stop_cancels_jobs_whose_query_failed(self):
+        chain = self.submit("exit 75\n")
+        self.attempt(chain, 1, check=False)
+        open(os.path.join(self.fake.dir, "query_fails"), "w").close()
+        self.assertEqual(self.status(chain), "unknown")
+        result = self.chainrun("stop", chain)
+        self.assertIn("could not query job 2", result.stderr)
+        self.assertEqual(self.fake.log()[-2:], ["cancel 2", "cancel 1"])
+        self.assert_lines(chain, "chain stopped")
+
+    def test_stop_and_status_by_job_id(self):
+        chain = self.submit("exit 75\n", name="a dir/run.sh")
+        self.attempt(chain, 1, check=False)
+        self.fake.set_job("1", state="running")
+        self.assertEqual(self.status("2"), "live")
+        self.chainrun("stop", "2")
+        self.assertEqual(self.fake.log()[-2:], ["cancel 2", "cancel 1"])
+        self.assertEqual(self.status(chain), "stopped")
+
+    def test_job_found_after_other_arguments(self):
+        chain = self.submit("exit 0\n", name="a dir/run.sh")
+        batch = os.path.join(chain, "batch", "1", "run.sh")
+        self.fake.set_job("1", batch="-q main -o /tmp/out -k doe " + batch)
+        self.assertEqual(chainrun.find_chain("1", self.fake), chain)
+
+    def test_stop_of_a_job_not_in_a_chain(self):
+        self.fake.set_job("7", batch="/home/user/plain.sh")
+        for job in ("7", "8"):
+            result = self.chainrun("stop", job, check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("%s is not a chain directory or a job of a chain" % job, result.stderr)
 
     def test_stop_cancels_a_job_missing_from_the_submitted_lines(self):
         chain = self.submit("exit 75\n")

@@ -110,7 +110,8 @@ class Finish(Case):
 
 
 class Canceled(Case):
-    """Delete the running attempt 1, expect attempt 2 to start, then stop the chain."""
+    """Delete the running attempt 1, expect attempt 2 to start, then stop the chain by
+    attempt 2's job id."""
 
     def __init__(self):
         Case.__init__(self, "cancel", "sleep 600\n", minutes=10)
@@ -122,7 +123,7 @@ class Canceled(Case):
             subprocess.run(["qdel" if PBS else "scancel", self.job(1)], check=True)
             self.acted = True
         elif self.acted and self.has("started 2"):
-            subprocess.run([sys.executable, CHAINRUN, "stop", self.chain], check=True)
+            subprocess.run([sys.executable, CHAINRUN, "stop", self.job(2)], check=True)
 
     def verify(self):
         self.check(self.state() == "stopped", "state %s" % self.state())

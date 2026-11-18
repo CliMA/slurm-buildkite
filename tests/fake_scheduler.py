@@ -4,7 +4,7 @@ chainrun loads it when CHAINRUN_SCHEDULER is "fake:DIR" and this directory is on
 It records every submit and cancel in DIR/log and answers queries from DIR/jobs.json, which
 the test edits to move jobs between states. A file DIR/refuse makes submit fail with the
 file's content as the message, DIR/refuse_once does so for one submit, DIR/cancel_fails
-makes cancel fail.
+makes cancel fail, DIR/query_fails makes query fail.
 """
 import json
 import os
@@ -57,5 +57,10 @@ class Fake:
         self.record("cancel " + job_id)
         self.set_job(job_id, state="ended")
 
+    def batch_text(self, job_id):
+        return self.jobs().get(job_id, {}).get("batch", "")
+
     def query(self, job_id):
+        if os.path.exists(os.path.join(self.dir, "query_fails")):
+            raise RuntimeError("the fake scheduler refuses the query")
         return self.jobs().get(job_id, {"state": "unknown"})["state"]
