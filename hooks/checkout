@@ -81,7 +81,20 @@ detach_from_mirror() {
         rm -f "${alternates}"
 }
 
-if [ ! -d "${BUILDKITE_BUILD_CHECKOUT_PATH}/.git" ]; then
+# Jobs of one build on one cluster share the checkout. The first job clones it while the
+# others wait on this lock, and the marker file shows that the checkout is complete.
+checkout_done="${BUILDKITE_BUILD_CHECKOUT_PATH}/.git/buildkite-checkout-complete"
+exec 8>"${BUILDKITE_BUILD_CHECKOUT_PATH}.lock"
+flock 8 || echo "Could not lock the checkout; continuing without the lock"
+
+if [ ! -f "${checkout_done}" ]; then
+    # A job killed during its checkout leaves a partial one, which git clone refuses
+    if [ -d "${BUILDKITE_BUILD_CHECKOUT_PATH}" ] &&
+        [ -n "$(ls -A "${BUILDKITE_BUILD_CHECKOUT_PATH}")" ]; then
+        echo "Removing an incomplete checkout"
+        cd /
+        rm -rf "${BUILDKITE_BUILD_CHECKOUT_PATH}"
+    fi
     echo "--- Update git mirror"
     mirror_ok=true
     update_git_mirror || {
@@ -109,9 +122,11 @@ if [ ! -d "${BUILDKITE_BUILD_CHECKOUT_PATH}/.git" ]; then
         echo "Sending Git commit information to Buildkite"
         git --no-pager show HEAD -s --format=fuller --no-color -- | buildkite-agent meta-data set "buildkite:git:commit"
     fi
+    touch "${checkout_done}"
 else
     echo "--- Using cached git repo ${BUILDKITE_BUILD_CHECKOUT_PATH}"
     cd "${BUILDKITE_BUILD_CHECKOUT_PATH}"
 fi
+exec 8>&-
 
 set +v
