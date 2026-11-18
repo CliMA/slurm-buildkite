@@ -23,9 +23,14 @@ job should continue. Anything else means it failed and the chain ends there. A j
 by the scheduler always continues, and so does a script killed by SIGTERM. chainrun passes
 SIGTERM, SIGUSR1 and SIGUSR2 on to the script.
 
-To end a chain, run `chainrun stop` with the id of its running or waiting job, as squeue
-or qstat shows it. A plain scancel or qdel of the running job continues the chain. status
-and stop also take the chain directory that submit prints.
+submit prints the id of the chain's first job and the chain directory:
+
+    job   8230429.desched1
+    chain /path/to/.chainrun/run.sh.20261118-142541.848990
+
+status and stop take the id of any of the chain's jobs, as squeue or qstat shows it, for
+as long as the scheduler keeps a record of the job, or the chain directory. To end a chain, run `chainrun stop`. A plain scancel or qdel of the
+running job continues the chain.
 
 The chain directory holds a copy of the script and a file `history` with one line per
 event. It also holds the environment submit ran in, readable by the owner only, until no
@@ -136,8 +141,12 @@ class Slurm:
         check(["scancel", job_id])
 
     def batch_text(self, job_id):
-        """Batch script path of the job. Empty if squeue does not list it."""
-        return check(["squeue", "-h", "-j", job_id, "-o", "%o"], accept="Invalid job id").rstrip("\n")
+        """Batch script path of the job, or its sbatch command line once it has left squeue.
+        Empty if unknown."""
+        text = check(["squeue", "-h", "-j", job_id, "-o", "%o"], accept="Invalid job id")
+        if not text.strip():
+            text = run(["sacct", "-j", job_id, "-X", "-n", "-P", "-o", "SubmitLine"]).stdout
+        return (text.splitlines() or [""])[0]
 
     def query(self, job_id):
         live = check(["squeue", "-h", "-j", job_id, "-o", "%T"], accept="Invalid job id")
@@ -344,11 +353,11 @@ def cmd_submit(args):
         with os.fdopen(fd, "w") as f:
             json.dump(data, f, indent=1)
     try:
-        submit_attempt(chain, config, get_scheduler(), 1, None)
+        job = submit_attempt(chain, config, get_scheduler(), 1, None)
     except Exception as e:
         shutil.rmtree(chain)
         sys.exit("chainrun: %s" % e)
-    print(chain)
+    print("job   %s\nchain %s" % (job, chain))
 
 
 def cmd_attempt(args):
@@ -478,10 +487,10 @@ def main(argv):
     p.add_argument("options", nargs=argparse.REMAINDER, help="scheduler options after --")
     p.set_defaults(func=cmd_submit)
     p = sub.add_parser("status", help="print the chain's state and history")
-    p.add_argument("chain", metavar="JOB", help="a live job id of the chain, or its directory")
+    p.add_argument("chain", metavar="JOB", help="a job id of the chain, or its directory")
     p.set_defaults(func=cmd_status)
     p = sub.add_parser("stop", help="end a chain and cancel its jobs")
-    p.add_argument("chain", metavar="JOB", help="a live job id of the chain, or its directory")
+    p.add_argument("chain", metavar="JOB", help="a job id of the chain, or its directory")
     p.set_defaults(func=cmd_stop)
     p = sub.add_parser("attempt", help="run one attempt, called by the batch jobs")
     p.add_argument("chain")

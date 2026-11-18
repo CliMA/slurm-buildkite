@@ -59,7 +59,7 @@ class Case:
                                 universal_newlines=True)
         if result.returncode != 0:
             sys.exit("%s: submit failed: %s" % (self.name, result.stderr))
-        self.chain = result.stdout.strip()
+        self.chain = dict(line.split(None, 1) for line in result.stdout.splitlines())["chain"]
         print("%s: chain %s" % (self.name, self.chain))
 
     def history(self):
@@ -92,6 +92,9 @@ class TimeLimit(Case):
     def verify(self):
         self.check(self.state() == "out-of-attempts", "state %s" % self.state())
         self.check(self.has("started 2"), "attempt 2 did not start")
+        status = subprocess.run([sys.executable, CHAINRUN, "status", self.job(1)],
+                                stdout=subprocess.PIPE, universal_newlines=True)
+        self.check(self.chain in status.stdout, "status by the ended job 1 did not find the chain")
         if PBS:
             self.check(self.has("signaled 1"), "attempt 1 saw no SIGTERM")
         out = open(os.path.join(os.path.dirname(os.path.dirname(self.chain)), "time_limit.out")).read()

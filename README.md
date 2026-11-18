@@ -84,9 +84,11 @@ checkpoint. A script that does not support this will repeat the same work in eve
 Work done after the last checkpoint is lost when an attempt is killed.
 
 ```
-chainrun submit --max-attempts 10 run.sh -- -q main -A UCIT0011 -l walltime=12:00:00
-chainrun status 8052953    # any live job of the chain, as qstat or squeue shows it
-chainrun stop 8052953
+$ chainrun submit --max-attempts 10 run.sh -- -q main -A UCIT0011 -l walltime=12:00:00
+job   8052953.desched1
+chain /glade/derecho/scratch/user/run/.chainrun/run.sh.20261118-142541.848990
+$ chainrun status 8052953    # any job of the chain, as qstat or squeue shows it
+$ chainrun stop 8052953
 ```
 
 To end a chain, run `chainrun stop` with the id of its running or waiting job. It cancels

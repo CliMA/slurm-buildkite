@@ -28,6 +28,11 @@ chainrun = importlib.util.module_from_spec(importlib.util.spec_from_loader("chai
 loader.exec_module(chainrun)
 
 
+def printed(result):
+    """The labeled lines a command printed, as a dict."""
+    return dict(line.split(None, 1) for line in result.stdout.splitlines())
+
+
 def history(*lines):
     return [("2026-11-11T12:00:00 " + line).split() for line in lines]
 
@@ -141,7 +146,7 @@ class CommandTest(unittest.TestCase):
     def submit(self, body, max_attempts=2, options=(), **kwargs):
         result = self.chainrun("submit", "--max-attempts", str(max_attempts),
                                self.script(body, **kwargs), "--", *options)
-        return result.stdout.strip()
+        return printed(result)["chain"]
 
     def attempt(self, chain, n, check=True, **kwargs):
         """Run attempt n as the fake's job n."""
@@ -180,6 +185,12 @@ class CommandTest(unittest.TestCase):
         self.assertFalse(any(h.startswith(prefix) for h in history), "%r in %s" % (prefix, history))
 
     # ---- outcomes of one attempt
+
+    def test_submit_prints_the_job_and_the_chain(self):
+        script = self.script("exit 0\n")
+        result = printed(self.chainrun("submit", script))
+        self.assertEqual(result["job"], "1")
+        self.assertTrue(os.path.isfile(os.path.join(result["chain"], "chain.json")))
 
     def test_finish(self):
         chain = self.submit("exit 0\n")
@@ -390,7 +401,7 @@ class CommandTest(unittest.TestCase):
     def test_secrets_left_out_of_the_environment(self):
         env = dict(self.env, GITHUB_TOKEN="t", AWS_SECRET_ACCESS_KEY="s", DB_PASSWORD="p",
                    MARK="kept")
-        chain = self.chainrun("submit", self.script("exit 0\n"), env=env).stdout.strip()
+        chain = printed(self.chainrun("submit", self.script("exit 0\n"), env=env))["chain"]
         saved = chainrun.read_env(chain)
         self.assertEqual(saved["MARK"], "kept")
         for name in ("GITHUB_TOKEN", "AWS_SECRET_ACCESS_KEY", "DB_PASSWORD"):
@@ -407,8 +418,8 @@ class CommandTest(unittest.TestCase):
 
     def test_two_submits_in_a_row(self):
         script = self.script("exit 0\n")
-        first = self.chainrun("submit", script).stdout.strip()
-        second = self.chainrun("submit", script).stdout.strip()
+        first = printed(self.chainrun("submit", script))["chain"]
+        second = printed(self.chainrun("submit", script))["chain"]
         self.assertNotEqual(first, second)
 
     def test_chains_hidden_from_git(self):
@@ -418,8 +429,8 @@ class CommandTest(unittest.TestCase):
 
     def test_submit_removes_old_chains(self):
         script = self.script("exit 0\n")
-        old = self.chainrun("submit", script).stdout.strip()
-        recent = self.chainrun("submit", script).stdout.strip()
+        old = printed(self.chainrun("submit", script))["chain"]
+        recent = printed(self.chainrun("submit", script))["chain"]
         for chain, days in ((old, 31), (recent, 29)):
             changed = time.time() - days * 86400
             os.utime(os.path.join(chain, "history"), (changed, changed))
