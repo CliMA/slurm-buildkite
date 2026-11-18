@@ -57,7 +57,7 @@ from datetime import datetime
 CONTINUE_CODE = 75
 TERM_CODE = 128 + signal.SIGTERM
 FORWARDED = (signal.SIGTERM, signal.SIGUSR1, signal.SIGUSR2)
-SUBMIT_TRIES = 3
+SUBMIT_TRIES = 10
 SUBMIT_DELAY = float(os.environ.get("CHAINRUN_SUBMIT_DELAY", 10))  # seconds between tries
 PRUNE_DAYS = 30
 SECRET_NAME = re.compile(r"TOKEN|SECRET|PASSW(OR)?D", re.I)
